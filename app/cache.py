@@ -19,6 +19,20 @@ def _conn() -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS people "
         "(person_id TEXT PRIMARY KEY, data TEXT, seen_at REAL)"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS outreach_log "
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT, to_addr TEXT, "
+        "subject TEXT, body TEXT, sent_at REAL)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS followups "
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT, to_addr TEXT, "
+        "orig_subject TEXT, orig_body TEXT, due_at REAL, sent INTEGER DEFAULT 0)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS feedback "
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, person_id TEXT, query TEXT, vote INTEGER, created_at REAL)"
+    )
     return conn
 
 
@@ -102,6 +116,82 @@ def recent(limit: int = 20) -> list[dict]:
     ).fetchall()
     conn.close()
     return [{"id": r[0], "query": r[1], "matches": r[2], "created_at": r[3]} for r in rows]
+
+
+# ---- outreach log + follow-ups ----
+
+def log_outreach(candidate_id: str, to_addr: str, subject: str, body: str) -> int:
+    conn = _conn()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO outreach_log (candidate_id, to_addr, subject, body, sent_at) VALUES (?, ?, ?, ?, ?)",
+            (candidate_id, to_addr, subject, body, time.time()),
+        )
+        row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def schedule_followup(candidate_id: str, to_addr: str, orig_subject: str, orig_body: str, due_at: float) -> int:
+    conn = _conn()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO followups (candidate_id, to_addr, orig_subject, orig_body, due_at) VALUES (?, ?, ?, ?, ?)",
+            (candidate_id, to_addr, orig_subject, orig_body, due_at),
+        )
+        row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def due_followups(now: float) -> list[dict]:
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT id, candidate_id, to_addr, orig_subject, orig_body, due_at FROM followups WHERE sent = 0 AND due_at <= ?",
+        (now,),
+    ).fetchall()
+    conn.close()
+    return [{"id": r[0], "candidate_id": r[1], "to": r[2], "orig_subject": r[3],
+             "orig_body": r[4], "due_at": r[5]} for r in rows]
+
+
+def mark_followup_sent(followup_id: int) -> None:
+    conn = _conn()
+    with conn:
+        conn.execute("UPDATE followups SET sent = 1 WHERE id = ?", (followup_id,))
+    conn.close()
+
+
+def outreach_stats() -> dict:
+    conn = _conn()
+    sent = conn.execute("SELECT COUNT(*) FROM outreach_log").fetchone()[0]
+    pending = conn.execute("SELECT COUNT(*) FROM followups WHERE sent = 0").fetchone()[0]
+    conn.close()
+    return {"messages_sent": sent, "followups_pending": pending}
+
+
+# ---- feedback loop (votes on results feed back into ranking) ----
+
+def record_feedback(person_id: str, query: str, vote: int) -> None:
+    conn = _conn()
+    with conn:
+        conn.execute(
+            "INSERT INTO feedback (person_id, query, vote, created_at) VALUES (?, ?, ?, ?)",
+            (person_id, query, vote, time.time()),
+        )
+    conn.close()
+
+
+def feedback_scores(query: str) -> dict[str, float]:
+    """Net votes per person for this exact query (normalized)."""
+    q = " ".join(query.lower().split())
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT person_id, SUM(vote) FROM feedback WHERE query = ? GROUP BY person_id",
+        (q,),
+    ).fetchall()
+    conn.close()
+    return {r[0]: float(r[1]) for r in rows}
 
 
 def _load() -> dict:

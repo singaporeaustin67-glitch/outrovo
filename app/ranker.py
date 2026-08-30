@@ -1,4 +1,4 @@
-from . import llm
+from . import cache, llm
 
 RANK_PROMPT = """You are the review brain of Outrovo, an AI people-search agent.
 The user asked: "{query}"
@@ -78,9 +78,12 @@ async def rank_candidates(query: str, candidates: list[dict]) -> list[dict]:
     # they were already proven relevant once, so don't let live sources crowd
     # them out of the 24-slot prompt. Live candidates compete by pre-score.
     indexed = [c for c in candidates if c.get("source") == "index"]
+    # Feedback loop: explicit thumbs up/down on past results nudges who makes
+    # the review batch (and, after review, the final ordering).
+    votes = cache.feedback_scores(query)
     live = sorted(
         (c for c in candidates if c.get("source") != "index"),
-        key=_prescore,
+        key=lambda c: _prescore(c) + 3 * votes.get(c.get("id", ""), 0),
         reverse=True,
     )
     batch = (indexed + live)[:24]
@@ -97,7 +100,7 @@ async def rank_candidates(query: str, candidates: list[dict]) -> list[dict]:
     ranked = []
     for c in batch:
         review = by_id.get(c["id"], {})
-        c["fit_score"] = int(review.get("fit_score", 0) or 0)
+        c["fit_score"] = max(0, min(100, int(review.get("fit_score", 0) or 0) + 5 * int(votes.get(c["id"], 0))))
         c["fit_reason"] = review.get("fit_reason", "")
         c["highlights"] = review.get("highlights", [])
         c["role"] = review.get("role", "") or c.get("stats", {}).get("occupation", "")

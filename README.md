@@ -63,6 +63,19 @@ are set in the Render dashboard (**Environment** tab) — they are `sync: false`
 - `TAVILY_API_KEY` — enables web search (free key at https://tavily.com); without
   it `/api/health` shows `"websearch": false` and local-business/niche queries
   lose coverage.
+- `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`FROM_EMAIL` — enables **sending**
+  outreach (not just drafting). Free options: a Gmail app password
+  (`smtp.gmail.com:587`) or Resend's free SMTP tier. `/api/health` shows
+  `outreach.sending_configured`.
+
+## Outreach + feedback loop
+
+- `POST /api/outreach/send` — sends a drafted message via SMTP, logs it, and
+  schedules a follow-up proposal for 3 days later (never auto-sent).
+- `GET /api/outreach/followups` → `POST /api/outreach/followups/{id}/send` —
+  review and send due follow-ups.
+- `POST /api/feedback` — thumbs up/down on any result; net votes adjust future
+  ranking for that query (batch selection + final fit score).
 
 ## API
 

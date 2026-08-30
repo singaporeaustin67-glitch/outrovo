@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import cache, config, connectors, planner, ranker, refiner
+from . import cache, config, connectors, outreach as outreach_mod, planner, ranker, refiner
 
 app = FastAPI(title="Outrovo — AI People Search")
 
@@ -25,6 +25,23 @@ class EmailRequest(BaseModel):
     candidate: dict
 
 
+class SendOutreachRequest(BaseModel):
+    candidate: dict
+    to: str = Field(min_length=3)
+    subject: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+
+
+class FeedbackRequest(BaseModel):
+    query: str = Field(min_length=1)
+    person_id: str = Field(min_length=1)
+    vote: int = Field(ge=-1, le=1)
+
+
+class FollowupSendRequest(BaseModel):
+    body: str = Field(min_length=1)
+
+
 class RefineRequest(BaseModel):
     query: str = Field(min_length=3, max_length=1000)
     instruction: str = Field(min_length=2, max_length=500)
@@ -38,6 +55,7 @@ async def health():
         "model": config.LLM_MODEL,
         "provider": config.LLM_BASE_URL,
         "people_index": cache.people_index_size(),
+        "outreach": {"sending_configured": outreach_mod.sending_configured(), **cache.outreach_stats()},
         "sources": {
             "opencorporates": bool(config.OPENCORPORATES_TOKEN),
             "websearch": bool(config.TAVILY_API_KEY),
@@ -183,6 +201,46 @@ async def outreach(req: OutreachRequest):
 async def emails(req: EmailRequest):
     found = await connectors.discover_emails(req.candidate)
     return {"emails": found}
+
+
+@app.post("/api/outreach/send")
+async def send_outreach(req: SendOutreachRequest):
+    """Actually send the drafted message via the configured SMTP account.
+    Logs the send and schedules a follow-up proposal (never auto-sent)."""
+    try:
+        return await outreach_mod.send_outreach(req.candidate, req.to, req.subject, req.body)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"send failed: {e}")
+
+
+@app.get("/api/outreach/followups")
+async def followups():
+    """Follow-up messages whose wait period has elapsed — ready to review and send."""
+    return {"due": outreach_mod.due_followups()}
+
+
+@app.post("/api/outreach/followups/{followup_id}/send")
+async def send_followup(followup_id: int, req: FollowupSendRequest):
+    due = {f["id"]: f for f in outreach_mod.due_followups()}
+    f = due.get(followup_id)
+    if not f:
+        raise HTTPException(status_code=404, detail="follow-up not found or already sent")
+    candidate = {"id": f["candidate_id"]}
+    try:
+        await outreach_mod.send_outreach(candidate, f["to"], f"Re: {f['orig_subject']}", req.body)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"send failed: {e}")
+    cache.mark_followup_sent(followup_id)
+    return {"sent": True}
+
+
+@app.post("/api/feedback")
+async def feedback(req: FeedbackRequest):
+    """Thumbs up/down on a result — feeds back into ranking for repeat/similar queries."""
+    cache.record_feedback(req.person_id, req.query, req.vote)
+    return {"recorded": True}
 
 
 @app.post("/api/refine")

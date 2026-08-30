@@ -303,6 +303,16 @@ tr.detail-row.open td .detail-box { display: block; animation: rise .3s both; }
   padding: 14px; max-width: 720px;
 }
 .outreach-text.on { display: block; animation: rise .35s both; }
+.fb-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.fb-btn { background: none; border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 13px; }
+.fb-btn:hover { border-color: var(--brand); }
+.fb-done { font-size: 12px; color: var(--brand-deep); }
+.send-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+.send-to, .send-subj { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; font-family: inherit; }
+.send-to { width: 240px; } .send-subj { width: 200px; }
+.send-btn { background: var(--brand); color: #fff; border: none; border-radius: 10px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.send-btn:disabled { opacity: .55; cursor: wait; }
+.send-status { font-size: 12px; color: var(--muted); }
 .email-box { margin-top: 14px; max-width: 720px; }
 .email-box .eb-title { font-family: 'JetBrains Mono'; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin-bottom: 8px; }
 .email-item {
@@ -550,7 +560,7 @@ footer { padding: 56px 0 40px; }
         <tr><td>Query style</td><td>Filters &amp; Boolean strings</td><td>Keywords</td><td class="ours">Plain language</td></tr>
         <tr><td>Data sources</td><td>One platform at a time</td><td>Scattered pages</td><td class="ours">Multiple live sources at once</td></tr>
         <tr><td>Relevance</td><td>Your own guesswork</td><td>No matching</td><td class="ours">AI fit score + written review</td></tr>
-        <tr><td>Outreach</td><td>Write every message yourself</td><td>Not available</td><td class="ours">Personalized drafts on demand</td></tr>
+        <tr><td>Outreach</td><td>Write every message yourself</td><td>Not available</td><td class="ours">Personalized drafts, one-click sending, follow-up reminders</td></tr>
       </table>
     </div>
   </div>
@@ -760,11 +770,22 @@ function personRows(c, i) {
   const detail = document.createElement("tr");
   detail.className = "detail-row";
   detail.innerHTML = `<td colspan="9"><div class="detail-box">
+    <div class="fb-row">Good match?
+      <button class="fb-btn" data-vote="1">👍</button>
+      <button class="fb-btn" data-vote="-1">👎</button>
+      <span class="fb-done"></span>
+    </div>
     ${c.fit_reason ? `<div class="fit"></div>` : ""}
     ${(c.highlights || []).length ? `<ul class="highlights">${c.highlights.map(() => "<li></li>").join("")}</ul>` : ""}
     <div class="email-box"><div class="eb-title">✉ Public email discovery</div><div class="email-list"></div></div>
     <button class="outreach-btn">✦ Draft outreach message</button>
     <div class="outreach-text"></div>
+    <div class="send-row">
+      <input class="send-to" type="email" placeholder="their-email@example.com">
+      <input class="send-subj" type="text" placeholder="Subject">
+      <button class="send-btn">Send →</button>
+      <span class="send-status"></span>
+    </div>
   </div></td>`;
   if (c.fit_reason) detail.querySelector(".fit").textContent = c.fit_reason;
   detail.querySelectorAll(".highlights li").forEach((li, j) => li.textContent = c.highlights[j]);
@@ -835,6 +856,39 @@ function personRows(c, i) {
     } catch (e) {
       btn.textContent = "✦ Failed — retry";
     } finally { btn.disabled = false; }
+  });
+
+  // Feedback loop — votes influence ranking of future similar searches
+  detail.querySelectorAll(".fb-btn").forEach(b => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await fetch("/api/feedback", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: lastQuery, person_id: c.id, vote: Number(b.dataset.vote) })
+    });
+    detail.querySelector(".fb-done").textContent = "thanks — noted for ranking";
+  }));
+
+  // Send the drafted message via the configured SMTP account
+  const sendBtn = detail.querySelector(".send-btn");
+  sendBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const to = detail.querySelector(".send-to").value.trim();
+    const subject = detail.querySelector(".send-subj").value.trim() || "Quick hello";
+    const body = box.textContent.trim();
+    const status = detail.querySelector(".send-status");
+    if (!to || !body) { status.textContent = "draft a message and enter an email first"; return; }
+    sendBtn.disabled = true; status.textContent = "sending…";
+    try {
+      const r = await fetch("/api/outreach/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidate: c, to, subject, body })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || "failed");
+      status.textContent = `sent ✓ follow-up reminder in ${d.followup_due_in_days}d`;
+    } catch (err) {
+      status.textContent = String(err.message).slice(0, 120);
+    } finally { sendBtn.disabled = false; }
   });
   return [tr, detail];
 }

@@ -48,3 +48,11 @@ is NOT on PATH — always use `python3 -m uvicorn`).
 - Latency profile: plan ~1s, gather ~15s, LLM rank ~15-20s (worse when Groq TPM
   contended — 3 sequential LLM calls per search: planner, websearch-extract, ranker).
 - User requirement: NO seed/mock data — all results must come from live sources.
+
+## Outreach + feedback loop (added iter 3)
+- `app/outreach.py`: SMTP sending via stdlib smtplib (STARTTLS negotiated via EHLO,
+  so local plaintext relays work too). Config: SMTP_HOST/PORT/USER/PASS/FROM_EMAIL.
+- SQLite tables in cache.py: outreach_log, followups (3-day auto-proposal, never
+  auto-sent), feedback. `POST /api/feedback` votes adjust ranker prescore (+3/vote)
+  and final fit_score (+5/vote, clamped 0-100).
+- Reddit JSON API 403s datacenter IPs; public SearXNG instances 429 — don't bother.
