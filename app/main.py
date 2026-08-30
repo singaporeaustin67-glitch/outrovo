@@ -74,7 +74,13 @@ async def search(req: SearchRequest):
     }
     if ranked:
         cache.put(req.query, result)
+        cache.record(req.query, len(ranked))
     return result
+
+
+@app.get("/api/history")
+async def history():
+    return {"history": cache.recent()}
 
 
 @app.post("/api/outreach")

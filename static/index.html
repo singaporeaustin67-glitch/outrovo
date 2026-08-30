@@ -183,6 +183,13 @@ section { padding: 84px 0; }
 .t-val { color: #e8f2ea; }
 .scan { display: inline-block; width: 8px; height: 14px; background: var(--lime); margin-left: 6px; animation: pulse .8s steps(2) infinite; }
 .results-meta { text-align: center; color: var(--muted); font-size: 14px; margin-bottom: 34px; font-family: 'JetBrains Mono'; }
+.export-bar { text-align: center; margin: -26px 0 34px; }
+.btn-export { padding: 9px 18px; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-export:hover { border-color: var(--accent); color: var(--accent); }
+#history { margin-top: 26px; text-align: center; }
+#history h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin-bottom: 10px; font-weight: 600; }
+.history-item { margin: 4px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px; background: #fff; font-size: 13px; cursor: pointer; }
+.history-item:hover { border-color: var(--accent); color: var(--accent); }
 .table-wrap {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   overflow-x: auto; box-shadow: var(--shadow);
@@ -470,6 +477,9 @@ footer { padding: 56px 0 40px; }
     <div class="err" id="err"></div>
     <div class="trace" id="trace"></div>
     <div class="results-meta" id="resultsMeta"></div>
+    <div class="export-bar" id="exportBar" style="display:none;">
+      <button class="btn-export" onclick="exportCsv()">⬇ Export CSV</button>
+    </div>
     <div class="table-wrap" id="tableWrap" style="display:none;">
       <table class="results">
         <thead>
@@ -604,6 +614,50 @@ const SOCIAL_ICONS = {
   opencorporates: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6M9 11h.01M15 11h.01M9 15h.01M15 15h.01"/></svg>`,
   websearch: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a15.3 15.3 0 0 1 0 18 15.3 15.3 0 0 1 0-18"/></svg>`
 };
+
+let lastResults = null;
+
+function renderHistory(items) {
+  if (!items?.length) return;
+  const div = document.createElement("div");
+  div.id = "history";
+  div.innerHTML = "<h3>Recent searches</h3>" +
+    items.map(h =>
+      `<button class="history-item" onclick="rerunQuery(this)">${h.query.replace(/</g, "&lt;")}</button>`
+    ).join(" ");
+  const anchor = document.querySelector(".stats") ||
+    document.querySelector("#results");
+  anchor.parentElement.insertBefore(div, anchor);
+}
+async function loadHistory() {
+  try {
+    const r = await fetch("/api/history");
+    const d = await r.json();
+    renderHistory(d.history);
+  } catch (_) { /* history is best-effort */ }
+}
+function rerunQuery(btn) {
+  const q = btn.textContent;
+  const input = document.querySelector("input");
+  input.value = q;
+  input.dispatchEvent(new Event("input"));
+  input.focus();
+  document.getElementById("searchBtn")?.click();
+}
+loadHistory();
+
+function exportCsv() {
+  if (!lastResults?.results?.length) return;
+  const head = ["name","fit_score","role","company","headline","location","source","profile_url"];
+  const csv = [head.join(",")]
+    .concat(lastResults.results.map(r => head.map(k =>
+      `"${String(r[k] ?? "").replace(/"/g, '""')}"`).join(",")))
+    .join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv" }));
+  a.download = `outrovo-${String(lastResults.query || "search").replace(/\W+/g, "-").slice(0, 40)}.csv`;
+  a.click();
+}
 
 function flagEmoji(cc) {
   if (!cc || cc.length !== 2) return "";
@@ -754,6 +808,8 @@ async function runSearch() {
     if (d.plan.github_query) traceLine("github", d.plan.github_query);
     traceLine("scanned", d.total_candidates + " real profiles → AI-reviewed in " + d.elapsed_seconds + "s");
 
+    lastResults = d;
+    $("exportBar").style.display = "block";
     $("resultsMeta").textContent =
       `${d.results.length} matches · ${d.total_candidates} scanned · ${d.elapsed_seconds}s`;
     if (!d.results.length) {
