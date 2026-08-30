@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import cache, config, connectors, planner, ranker
+from . import cache, config, connectors, planner, ranker, refiner
 
 app = FastAPI(title="Outrovo — AI People Search")
 
@@ -23,6 +23,12 @@ class OutreachRequest(BaseModel):
 
 class EmailRequest(BaseModel):
     candidate: dict
+
+
+class RefineRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=1000)
+    instruction: str = Field(min_length=2, max_length=500)
+    candidates: list[dict] = Field(max_length=30)
 
 
 @app.get("/api/health")
@@ -174,6 +180,15 @@ async def outreach(req: OutreachRequest):
 async def emails(req: EmailRequest):
     found = await connectors.discover_emails(req.candidate)
     return {"emails": found}
+
+
+@app.post("/api/refine")
+async def refine(req: RefineRequest):
+    try:
+        out = await refiner.refine(req.query, req.instruction, req.candidates)
+    except Exception:
+        raise HTTPException(status_code=502, detail="refinement failed, try again")
+    return out
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

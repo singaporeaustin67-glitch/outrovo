@@ -67,7 +67,8 @@ async def rank_candidates(query: str, candidates: list[dict]) -> list[dict]:
         c["fit_reason"] = review.get("fit_reason", "")
         c["highlights"] = review.get("highlights", [])
         c["role"] = review.get("role", "") or c.get("stats", {}).get("occupation", "")
-        c["company"] = review.get("company", "") or c.get("stats", {}).get("company", "").lstrip("@")
+        company = (review.get("company", "") or c.get("stats", {}).get("company", "").lstrip("@")).strip()
+        c["company"] = "" if company.lower() in ("n/a", "none", "unknown", "-") else company
         c["country_code"] = (review.get("country_code", "") or "").upper()[:2]
         c.pop("bio", None)
         ranked.append(c)
