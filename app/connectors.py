@@ -339,6 +339,7 @@ async def search_websearch(client: httpx.AsyncClient, query: str, occupations: l
     Wikidata & friends miss — e.g. local business owners. Extracts real names only
     from real snippets via LLM. Requires TAVILY_API_KEY; auto-skips without it."""
     if not config.TAVILY_API_KEY:
+        logger.warning("websearch skipped: TAVILY_API_KEY not set")
         return []
     topic = " ".join(occupations[:3]) or query
     resp = await client.post(
@@ -1640,8 +1641,20 @@ async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
             location = plan.get("location") or plan.get("country", "")
             tasks["opencorporates"] = search_opencorporates(client, terms, location)
         if "websearch" in sources:
-            location = plan.get("location") or plan.get("country", "")
-            tasks["websearch"] = search_websearch(client, query=plan.get("intent_summary", ""), occupations=plan.get("occupations", []), location=location)
+            if config.TAVILY_API_KEY:
+                location = plan.get("location") or plan.get("country", "")
+                tasks["websearch"] = search_websearch(client, query=plan.get("intent_summary", ""), occupations=plan.get("occupations", []), location=location)
+            else:
+                # Key absent in production (Render env): degrade gracefully — local-business
+                # queries still get coverage via community sources instead of a silent hole.
+                extra_terms = plan.get("occupations", [])[:2]
+                if "bluesky" not in tasks and extra_terms:
+                    tasks["bluesky"] = search_bluesky(client, extra_terms)
+                if "mastodon" not in tasks and extra_terms:
+                    tasks["mastodon"] = search_mastodon(client, extra_terms)
+                plan.setdefault("notes", "").join and plan.update(
+                    {"notes": (plan.get("notes") or "") + " websearch skipped (no TAVILY_API_KEY)"})
+
         if "wikidata" in sources:
             tasks["wikidata"] = search_wikidata(client, plan.get("occupations", []), plan.get("country", ""))
             # Wikidata coverage is thin for some regions/topics; Wikipedia full-text
