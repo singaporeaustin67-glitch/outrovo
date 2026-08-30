@@ -224,7 +224,11 @@ table.results tbody tr.person-row:last-of-type td { border-bottom: none; }
 .socials a.s-youtube { background: #ff0033; border-color: #ff0033; color: #fff; }
 .socials a.s-tiktok { background: #101812; border-color: #101812; color: #25f4ee; }
 .socials a.s-github { background: #24292f; border-color: #24292f; color: #fff; }
-.cell-company { font-weight: 600; color: var(--ink); }
+.cell-company { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--ink); }
+.company-logo {
+  width: 26px; height: 26px; border-radius: 7px; object-fit: contain;
+  background: var(--surface); border: 1px solid var(--line); padding: 2px; flex-shrink: 0;
+}
 .cell-role { color: var(--ink-2); }
 .cell-country { font-family: 'JetBrains Mono'; font-size: 13px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 .cell-country .flag { font-size: 17px; margin-right: 7px; }
@@ -450,12 +454,12 @@ footer { padding: 56px 0 40px; }
       <table class="results">
         <thead>
           <tr>
-            <th>Person</th>
+            <th>Profile</th>
             <th>Match</th>
-            <th>Socials</th>
-            <th>Organization</th>
-            <th>Role</th>
-            <th>Contact</th>
+            <th>Link</th>
+            <th>Company</th>
+            <th>Title</th>
+            <th>Email</th>
             <th>Country</th>
           </tr>
         </thead>
@@ -594,13 +598,13 @@ function personRows(c, i) {
     </div></td>
     <td><span class="match ${scoreClass(score)}"><span class="mdot"></span>${score}%</span></td>
     <td><div class="socials">${socials}</div></td>
-    <td class="cell-company"></td>
+    <td><div class="cell-company">${c.company_logo ? `<img class="company-logo" src="${c.company_logo}" loading="lazy" onerror="this.remove()">` : ""}<span class="company-name"></span></div></td>
     <td class="cell-role"></td>
     <td><button class="check-btn">✉ Check</button></td>
     <td class="cell-country"></td>`;
   tr.querySelector(".cell-name").textContent = c.name;
   tr.querySelector(".cell-sub").textContent = "via " + c.source;
-  tr.querySelector(".cell-company").textContent = c.company || "—";
+  tr.querySelector(".company-name").textContent = c.company || "—";
   const headline = (c.headline || "").trim();
   const cleanHeadline = /https?:\/\/|@/.test(headline) ? "" : headline.slice(0, 60);
   tr.querySelector(".cell-role").textContent = c.role || cleanHeadline || "—";

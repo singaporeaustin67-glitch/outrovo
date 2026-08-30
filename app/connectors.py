@@ -1,6 +1,7 @@
 """Connectors that fetch REAL people data from live public sources."""
 
 import asyncio
+import hashlib
 import html
 import re
 from urllib.parse import quote_plus
@@ -308,6 +309,58 @@ LIMIT {per_occ * 3}
         reverse=True,
     )
     return candidates[:limit]
+
+
+async def enrich_company_logos(candidates: list[dict]) -> None:
+    """Resolve company names to logo URLs via Wikidata (real logos, free)."""
+    companies = {c["company"].strip() for c in candidates if c.get("company", "").strip()}
+    if not companies:
+        return
+
+    async def resolve(client: httpx.AsyncClient, name: str) -> tuple[str, str]:
+        try:
+            resp = await client.get(
+                "https://www.wikidata.org/w/api.php",
+                params={
+                    "action": "wbsearchentities",
+                    "search": name,
+                    "language": "en",
+                    "format": "json",
+                    "type": "item",
+                    "limit": 1,
+                },
+                headers=_headers(),
+            )
+            if resp.status_code != 200:
+                return name, ""
+            results = resp.json().get("search", [])
+            if not results:
+                return name, ""
+            qid = results[0]["id"]
+            resp = await client.get(
+                f"https://www.wikidata.org/wiki/Special:EntityData/{qid}.json",
+                headers=_headers(),
+            )
+            if resp.status_code != 200:
+                return name, ""
+            entity = resp.json()["entities"][qid]
+            logo = entity.get("claims", {}).get("P154", [])
+            if not logo:
+                return name, ""
+            filename = logo[0]["mainsnak"]["datavalue"]["value"].replace(" ", "_")
+            h = hashlib.md5(filename.encode()).hexdigest()
+            # SVG thumbs on Wikimedia need a .png suffix; PNG/JPG use the raw name.
+            thumb = f"120px-{filename}.png" if filename.lower().endswith(".svg") else f"120px-{filename}"
+            url = f"https://upload.wikimedia.org/wikipedia/commons/thumb/{h[0]}/{h[:2]}/{filename}/{thumb}"
+            return name, url
+        except Exception:
+            return name, ""
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        pairs = await asyncio.gather(*(resolve(client, n) for n in list(companies)[:12]))
+    logo_map = dict(pairs)
+    for c in candidates:
+        c["company_logo"] = logo_map.get(c.get("company", "").strip(), "")
 
 
 async def gather_candidates(plan: dict) -> list[dict]:

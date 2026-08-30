@@ -32,6 +32,7 @@ async def search(req: SearchRequest):
 
     try:
         ranked = await ranker.rank_candidates(req.query, candidates)
+        await connectors.enrich_company_logos(ranked)
     except Exception:
         # Rate-limit congestion: return unranked real data rather than failing.
         ranked = [
