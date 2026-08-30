@@ -251,6 +251,7 @@ table.results tbody tr.detail-row td:first-child { background: #fbfdf9; }
 .socials a.s-wikipedia, .socials a.s-wikidata { background: #fff; color: #101812; }
 .socials a.s-mastodon { background: #6364ff; border-color: #6364ff; color: #fff; }
 .socials a.s-devto { background: #0a0a0a; border-color: #0a0a0a; color: #fff; }
+.socials a.s-producthunt { background: #da552f; border-color: #da552f; color: #fff; }
 .cell-company { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--ink); }
 .company-logo {
   width: 26px; height: 26px; border-radius: 7px; object-fit: contain;
@@ -633,7 +634,8 @@ const SOCIAL_ICONS = {
   opencorporates: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6M9 11h.01M15 11h.01M9 15h.01M15 15h.01"/></svg>`,
   websearch: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a15.3 15.3 0 0 1 0 18 15.3 15.3 0 0 1 0-18"/></svg>`,
   mastodon: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.27 7.34c0-4.48-2.94-5.8-2.94-5.8C18.85.55 15.48.16 12.31.15h-.08c-3.17.01-6.54.4-8.02 1.39 0 0-2.94 1.32-2.94 5.8 0 1.04-.02 2.29.01 3.62.17 6.9 1.31 13.7 7.9 14.11 3.04.19 5.65-.74 5.65-.74l-.12-2.63s-2.17.69-4.61.6c-2.42-.08-4.97-.25-5.36-3.14a5.87 5.87 0 0 1-.05-.43s2.38.58 5.39.72c1.84.08 3.57-.1 5.32-.29 3.36-.37 6.29-2.28 6.65-4.03.58-2.8.53-6.83.53-6.83zm-3.92 8.52h-2.57V8.66c0-1.33-.56-2-1.67-2-1.23 0-1.85.82-1.85 2.43v3.44h-2.55V9.09c0-1.61-.62-2.43-1.85-2.43-1.11 0-1.67.67-1.67 2v7.2H3.61V8.53c0-1.33.34-2.38 1.02-3.16.7-.77 1.62-1.17 2.74-1.17 1.31 0 2.3.5 2.96 1.5l.64 1.08.64-1.08c.66-1 1.65-1.5 2.96-1.5 1.12 0 2.04.4 2.74 1.17.68.78 1.02 1.83 1.02 3.16l.02 7.33z"/></svg>`,
-  devto: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.83 10.67c0-.6-.28-.88-.84-.88h-.61v2.55h.61c.56 0 .84-.28.84-.88v-.79zM20.73 0H3.27A3.27 3.27 0 0 0 0 3.27v17.46A3.27 3.27 0 0 0 3.27 24h17.46A3.27 3.27 0 0 0 24 20.73V3.27A3.27 3.27 0 0 0 20.73 0zM8.7 12.22c0 1.44-.98 2.19-2.4 2.19H4.5V7.63h1.83c1.4 0 2.37.76 2.37 2.19v2.4zm4.63-2.96H10.7v1.4h1.43v1.59H10.7v1.44h2.63v1.6h-3.9c-.34 0-.62-.28-.62-.61V8.37c0-.34.28-.61.62-.61h3.9v1.5zm5.33 5.23c-.81 1.11-2.28 1.2-3.17.2-.41-.46-.65-1.05-1.44-2.95l-1.62-4.11h1.83l1.26 3.18 1.24-3.18h1.83l-1.93 6.86z"/></svg>`
+  devto: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.83 10.67c0-.6-.28-.88-.84-.88h-.61v2.55h.61c.56 0 .84-.28.84-.88v-.79zM20.73 0H3.27A3.27 3.27 0 0 0 0 3.27v17.46A3.27 3.27 0 0 0 3.27 24h17.46A3.27 3.27 0 0 0 24 20.73V3.27A3.27 3.27 0 0 0 20.73 0zM8.7 12.22c0 1.44-.98 2.19-2.4 2.19H4.5V7.63h1.83c1.4 0 2.37.76 2.37 2.19v2.4zm4.63-2.96H10.7v1.4h1.43v1.59H10.7v1.44h2.63v1.6h-3.9c-.34 0-.62-.28-.62-.61V8.37c0-.34.28-.61.62-.61h3.9v1.5zm5.33 5.23c-.81 1.11-2.28 1.2-3.17.2-.41-.46-.65-1.05-1.44-2.95l-1.62-4.11h1.83l1.26 3.18 1.24-3.18h1.83l-1.93 6.86z"/></svg>`,
+  producthunt: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.6 8.4h-3.4V4.8h3.4a1.8 1.8 0 0 1 0 3.6zm0 6h-3.4v4.8H6.8V0h6.8a5.2 5.2 0 0 1 0 10.4z"/></svg>`
 };
 
 let lastResults = null;

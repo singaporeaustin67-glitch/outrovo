@@ -423,6 +423,91 @@ async def search_devto(client: httpx.AsyncClient, terms: list[str], limit: int =
     return list(authors.values())[:limit]
 
 
+_ph_token_cache: dict = {}
+
+
+async def _producthunt_token(client: httpx.AsyncClient) -> str | None:
+    if _ph_token_cache.get("token"):
+        return _ph_token_cache["token"]
+    if not (config.PRODUCTHUNT_API_KEY and config.PRODUCTHUNT_API_SECRET):
+        return None
+    resp = await client.post(
+        "https://api.producthunt.com/v1/oauth/token",
+        json={
+            "client_id": config.PRODUCTHUNT_API_KEY,
+            "client_secret": config.PRODUCTHUNT_API_SECRET,
+            "grant_type": "client_credentials",
+        },
+    )
+    if resp.status_code != 200:
+        return None
+    _ph_token_cache["token"] = resp.json().get("access_token")
+    return _ph_token_cache["token"]
+
+
+async def search_producthunt(client: httpx.AsyncClient, terms: list[str], limit: int = 8) -> list[dict]:
+    """Product Hunt makers — real founders/makers with Twitter handles + headlines."""
+    token = await _producthunt_token(client)
+    if not token:
+        return []
+    headers = {"Authorization": f"Bearer {token}"}
+    makers: dict[str, dict] = {}
+    for term in terms[:3]:
+        slug = re.sub(r"[^a-z0-9]+", "-", term.lower()).strip("-")
+        if not slug:
+            continue
+        # PH has no search and no slug-exists check: guess the slug and
+        # verify by whether any posts come back.
+        query = (
+            '{ posts(first: 10, topic: "' + slug + '", order: VOTES) { edges { node { name '
+            "makers { name username headline twitterUsername websiteUrl } } } } }"
+        )
+        resp = await client.post(
+            "https://api.producthunt.com/v2/api/graphql",
+            json={"query": query},
+            headers=headers,
+        )
+        if resp.status_code != 200:
+            continue
+        posts = (((resp.json() or {}).get("data") or {}).get("posts") or {}).get("edges", [])
+        if not posts and " " in term:
+            # multi-word term missed — try each word as its own slug
+            for word in term.lower().split():
+                wslug = re.sub(r"[^a-z0-9]+", "-", word).strip("-")
+                if len(wslug) < 3:
+                    continue
+                resp = await client.post(
+                    "https://api.producthunt.com/v2/api/graphql",
+                    json={"query": query.replace(f'topic: "{slug}"', f'topic: "{wslug}"')},
+                    headers=headers,
+                )
+                if resp.status_code == 200:
+                    posts = (((resp.json() or {}).get("data") or {}).get("posts") or {}).get("edges", [])
+                if posts:
+                    break
+        for edge in posts:
+            node = edge.get("node") or {}
+            for m in node.get("makers", []):
+                username = m.get("username")
+                if not username or username in makers:
+                    continue
+                platforms = {}
+                if m.get("twitterUsername"):
+                    platforms["x"] = f"https://x.com/{m['twitterUsername']}"
+                makers[username] = {
+                    "id": f"producthunt:{username}",
+                    "name": m.get("name") or username,
+                    "headline": m.get("headline") or f"Maker of {node.get('name', '')}",
+                    "location": "",
+                    "source": "producthunt",
+                    "profile_url": f"https://www.producthunt.com/@{username}",
+                    "avatar_url": "",
+                    "platforms": {"producthunt": f"https://www.producthunt.com/@{username}", **platforms},
+                    "stats": {"company": node.get("name", "")},
+                }
+    return list(makers.values())[:limit]
+
+
 # Wikidata properties holding real social-media handles.
 WD_HANDLE_PROPS = {
     "P2003": ("instagram", "https://www.instagram.com/{}/"),
@@ -877,6 +962,47 @@ async def _emails_from_wikidata(client: httpx.AsyncClient, qid: str) -> list[dic
     return out
 
 
+async def _emails_from_mastodon(client: httpx.AsyncClient, profile_url: str) -> list[dict]:
+    """Mastodon users often publish emails in their bio/fields."""
+    acct = profile_url.rstrip("/").rsplit("/", 1)[-1].lstrip("@")
+    if "@" not in acct:
+        host = profile_url.split("/")[2] if "://" in profile_url else "mastodon.social"
+        acct = f"{acct}@{host}"
+    resp = await client.get(
+        f"https://{acct.split('@')[-1]}/api/v1/accounts/lookup",
+        params={"acct": acct},
+        headers=_headers(),
+    )
+    if resp.status_code != 200:
+        return []
+    acc = resp.json()
+    text = re.sub(r"<[^>]+>", " ", acc.get("note") or "")
+    for field in acc.get("fields", []):
+        text += " " + re.sub(r"<[^>]+>", " ", field.get("value") or "")
+    return [
+        {"address": a, "source": "Mastodon profile", "url": profile_url}
+        for a in _clean_emails(text)
+    ]
+
+
+async def _emails_from_producthunt(client: httpx.AsyncClient, username: str) -> list[dict]:
+    """Product Hunt makers link a personal website — scan it for published emails."""
+    token = await _producthunt_token(client)
+    if not token:
+        return []
+    resp = await client.post(
+        "https://api.producthunt.com/v2/api/graphql",
+        json={"query": '{ user(username: "' + username + '") { websiteUrl } }'},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if resp.status_code != 200:
+        return []
+    site = (((resp.json() or {}).get("data") or {}).get("user") or {}).get("websiteUrl")
+    if not site or not site.startswith("http"):
+        return []
+    return await _emails_from_website(client, site)
+
+
 async def _emails_from_website(client: httpx.AsyncClient, url: str) -> list[dict]:
     """Scan a person's own public website for mailto: links and published addresses."""
     try:
@@ -905,6 +1031,10 @@ async def discover_emails(candidate: dict) -> list[dict]:
             calls.append(_emails_from_hackernews(client, platforms["hackernews"].split("id=")[-1]))
         if "wikidata" in platforms:
             calls.append(_emails_from_wikidata(client, platforms["wikidata"].rsplit("/", 1)[-1]))
+        if "mastodon" in platforms:
+            calls.append(_emails_from_mastodon(client, platforms["mastodon"]))
+        if "producthunt" in platforms:
+            calls.append(_emails_from_producthunt(client, platforms["producthunt"].split("@")[-1]))
         for key in ("website", "blog"):
             if key in platforms:
                 calls.append(_emails_from_website(client, platforms[key]))
@@ -938,6 +1068,11 @@ async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
             tasks["mastodon"] = search_mastodon(client, plan.get("hn_terms", []) or plan.get("occupations", []))
         if "devto" in sources:
             tasks["devto"] = search_devto(client, plan.get("occupations", []) or plan.get("hn_terms", []))
+        if "producthunt" in sources:
+            tasks["producthunt"] = search_producthunt(
+                client,
+                plan.get("ph_topics") or plan.get("role_keywords", []) or plan.get("hn_terms", []),
+            )
         if "opencorporates" in sources:
             terms = plan.get("role_keywords", []) or plan.get("wiki_terms", [])
             location = plan.get("location") or plan.get("country", "")

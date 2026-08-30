@@ -15,6 +15,8 @@ LLM_FALLBACK_MODELS = [
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 OPENCORPORATES_TOKEN = os.getenv("OPENCORPORATES_TOKEN", "")  # free with registration
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")  # free tier: https://tavily.com
+PRODUCTHUNT_API_KEY = os.getenv("PRODUCTHUNT_API_KEY", "")  # free: producthunt.com/v2/oauth/applications
+PRODUCTHUNT_API_SECRET = os.getenv("PRODUCTHUNT_API_SECRET", "")
 
 HTTP_TIMEOUT = 20.0
 USER_AGENT = "Outrovo/1.0 (https://outrovo.ai; people-search-agent)"
