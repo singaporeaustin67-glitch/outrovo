@@ -224,6 +224,128 @@ async def _resolve_qid(client: httpx.AsyncClient, label: str) -> str | None:
     return hit[0] if hit else None
 
 
+async def _country_demonym(client: httpx.AsyncClient, country_qid: str) -> str | None:
+    """Fetch a country's demonym (e.g. Q865 -> 'Taiwanese') from Wikidata P1549."""
+    resp = await client.get(
+        f"https://www.wikidata.org/wiki/Special:EntityData/{country_qid}.json",
+        headers=_headers(),
+    )
+    if resp.status_code != 200:
+        return None
+    claims = resp.json()["entities"].get(country_qid, {}).get("claims", {})
+    for claim in claims.get("P1549", []):
+        value = claim.get("mainsnak", {}).get("datavalue", {}).get("value", "")
+        if isinstance(value, dict):  # monolingual text
+            value = value.get("text", "")
+        value = re.sub(r"[^A-Za-z ]", "", str(value)).strip()
+        if value:
+            return value
+    return None
+
+
+async def _wikidata_people_fulltext(
+    client: httpx.AsyncClient,
+    demonym: str,
+    occupations: list[str],
+    country: str,
+    limit: int = 20,
+) -> list[dict]:
+    """Indexed full-text people search on Wikidata (fast MediaWiki API, not SPARQL)."""
+    variants: list[str] = []
+    for o in occupations[:4]:
+        variants.append(o)
+        if " " in o:
+            variants.append(o.split()[-1])  # "beauty influencer" -> also "influencer"
+    terms = list(dict.fromkeys(variants))[:6]
+    if demonym:
+        terms = [f"{demonym} {t}" for t in terms]
+    qids: list[str] = []
+
+    async def search_term(term: str) -> list[str]:
+        try:
+            resp = await client.get(
+                "https://www.wikidata.org/w/api.php",
+                params={
+                    "action": "query", "list": "search", "srsearch": term,
+                    "srlimit": 12, "format": "json",
+                },
+                headers=_headers(),
+            )
+            if resp.status_code != 200:
+                return []
+            return [r["title"] for r in resp.json().get("query", {}).get("search", [])]
+        except httpx.HTTPError:
+            return []
+
+    for hit in await asyncio.gather(*(search_term(t) for t in terms)):
+        qids += hit
+    qids = [q for q in dict.fromkeys(qids) if re.fullmatch(r"Q\d+", q)][:25]
+    if not qids:
+        return []
+
+    resp = await client.get(
+        "https://www.wikidata.org/w/api.php",
+        params={
+            "action": "wbgetentities",
+            "ids": "|".join(qids),
+            "props": "labels|descriptions|claims|sitelinks",
+            "languages": "en",
+            "format": "json",
+        },
+        headers=_headers(),
+    )
+    if resp.status_code != 200:
+        return []
+
+    out = []
+    for qid, ent in resp.json().get("entities", {}).items():
+        claims = ent.get("claims", {})
+        p31 = {
+            c["mainsnak"]["datavalue"]["value"]["id"]
+            for c in claims.get("P31", [])
+            if c.get("mainsnak", {}).get("datavalue", {}).get("value", {}).get("id")
+        }
+        if "Q5" not in p31:  # keep humans only
+            continue
+        label = ent.get("labels", {}).get("en", {}).get("value", "")
+        if not label or re.fullmatch(r"Q\d+", label):
+            continue
+        desc = ent.get("descriptions", {}).get("en", {}).get("value", "")
+        platforms: dict[str, str] = {"wikidata": f"https://www.wikidata.org/wiki/{qid}"}
+        for prop, (platform, tpl) in WD_HANDLE_PROPS.items():
+            for claim in claims.get(prop, []):
+                handle = claim.get("mainsnak", {}).get("datavalue", {}).get("value", "")
+                if isinstance(handle, str) and handle.strip():
+                    platforms[platform] = tpl.format(handle.strip())
+                    break
+        img = ""
+        for claim in claims.get("P18", []):
+            filename = claim.get("mainsnak", {}).get("datavalue", {}).get("value", "")
+            if filename:
+                fn = filename.replace(" ", "_")
+                h = hashlib.md5(fn.encode()).hexdigest()
+                img = f"https://upload.wikimedia.org/wikipedia/commons/{h[0]}/{h[:2]}/{fn}"
+                break
+        entry = {
+            "id": f"wikidata:{qid}",
+            "name": label,
+            "headline": desc,
+            "location": country or "",
+            "source": "wikidata",
+            "profile_url": next(
+                (u for k, u in platforms.items() if k != "wikidata"),
+                f"https://www.wikidata.org/wiki/{qid}",
+            ),
+            "avatar_url": img,
+            "platforms": platforms,
+            "stats": {"occupation": desc, "sitelinks": str(len(ent.get("sitelinks", {})))},
+        }
+        out.append(entry)
+        if len(out) >= limit:
+            break
+    return out
+
+
 async def search_wikidata(
     client: httpx.AsyncClient,
     occupations: list[str],
@@ -237,18 +359,23 @@ async def search_wikidata(
     if not occ_qids:
         return []
     country_qid = await _resolve_qid(client, country) if country else None
+    demonym = await _country_demonym(client, country_qid) if country_qid else None
 
     handle_selects = "\n".join(f"  OPTIONAL {{ ?person wdt:{prop} ?h_{prop[1:]}. }}" for prop in WD_HANDLE_PROPS)
     handle_vars = " ".join(f"?h_{prop[1:]}" for prop in WD_HANDLE_PROPS)
-    country_clause = f"?person wdt:P27 wd:{country_qid} ." if country_qid else ""
-    per_occ = max(4, limit // len(occ_qids) + 2)
+    # P27 (citizenship) is sparse for some countries; also match by demonym in the
+    # English description (e.g. "Taiwanese YouTuber") to widen recall.
+    country_filter = f"?person wdt:P27 wd:{country_qid} ." if country_qid else ""
+    demonym_filter = f'FILTER(CONTAINS(LCASE(STR(?desc)), "{demonym.lower()}"))' if demonym else ""
+    per_occ = max(4, (limit * 2) // len(occ_qids) + 2)
 
-    async def run_query(occ_qid: str) -> list[dict]:
+    async def run_query(occ_qid: str, filt: str) -> list[dict]:
+        occ_clause = f"?person wdt:P106 wd:{occ_qid} ." if occ_qid else ""
         sparql = f"""
 SELECT DISTINCT ?person ?personLabel ?desc ?img ?sitelinks {handle_vars} WHERE {{
-  ?person wdt:P106 wd:{occ_qid} .
+  {occ_clause}
   ?person wikibase:sitelinks ?sitelinks .
-  {country_clause}
+  {filt}
 {handle_selects}
   OPTIONAL {{ ?person wdt:P18 ?img . }}
   OPTIONAL {{ ?person schema:description ?desc . FILTER(LANG(?desc) = "en") }}
@@ -270,7 +397,15 @@ LIMIT {per_occ * 3}
             return []
         return resp.json()["results"]["bindings"]
 
-    batches = await asyncio.gather(*(run_query(q) for q in occ_qids))
+    queries = [(q, country_filter) for q in occ_qids]
+    if demonym_filter:
+        queries += [(q, demonym_filter) for q in occ_qids]
+    sparql_task = asyncio.gather(*(run_query(q, f) for q, f in queries))
+    # Indexed full-text search widens recall where occupation tagging is sparse.
+    fulltext_task = _wikidata_people_fulltext(
+        client, demonym or "", occupations, country, limit=limit
+    ) if (demonym or country) else asyncio.sleep(0, result=[])
+    batches, fulltext_results = await asyncio.gather(sparql_task, fulltext_task)
 
     by_qid: dict[str, dict] = {}
     for bindings in batches:
@@ -297,6 +432,13 @@ LIMIT {per_occ * 3}
                 handle = b.get(f"h_{prop[1:]}", {}).get("value", "").strip()
                 if handle and platform not in entry["platforms"]:
                     entry["platforms"][platform] = tpl.format(handle)
+
+    for ft in fulltext_results:
+        qid = ft["id"].split(":", 1)[1]
+        if qid not in by_qid:
+            by_qid[qid] = ft
+        else:
+            by_qid[qid]["platforms"].update(ft["platforms"])
 
     candidates = list(by_qid.values())
     for c in candidates:
@@ -498,6 +640,14 @@ async def gather_candidates(plan: dict) -> list[dict]:
             tasks.append(
                 search_wikidata(client, plan.get("occupations", []), plan.get("country", ""))
             )
+            # Wikidata coverage is thin for some regions/topics; Wikipedia full-text
+            # complements it even when the planner picked only Wikidata.
+            if "wikipedia" not in sources:
+                terms = plan.get("wiki_terms", []) or [
+                    f"{plan.get('country', '')} {occ}".strip() for occ in plan.get("occupations", [])[:3]
+                ]
+                tasks.append(search_wikipedia(client, terms))
+                plan["sources"] = sorted(set(plan.get("sources", [])) | {"wikipedia"})
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
     candidates: list[dict] = []
