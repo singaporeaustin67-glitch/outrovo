@@ -1,6 +1,7 @@
 """Connectors that fetch REAL people data from live public sources."""
 
 import asyncio
+import json
 import hashlib
 import html
 import re
@@ -689,6 +690,96 @@ async def search_bluesky(client: httpx.AsyncClient, terms: list[str], limit: int
             "stats": {
                 "followers": p.get("followersCount", 0),
                 "posts": p.get("postsCount", 0),
+            },
+        })
+    out.sort(key=lambda c: c["stats"]["followers"], reverse=True)
+    return out[:limit]
+
+
+_YT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+_YT_CHANNELS_ONLY = "EgIQAg=="  # YouTube search filter: channels
+
+
+def _parse_subscriber_count(text: str) -> int:
+    m = re.match(r"([\d.]+)\s*([KMB]?)\s+subscribers", text or "", re.I)
+    if not m:
+        return 0
+    mult = {"": 1, "K": 1_000, "M": 1_000_000, "B": 1_000_000_000}[m.group(2).upper()]
+    return int(float(m.group(1)) * mult)
+
+
+async def search_youtube(
+    client: httpx.AsyncClient, terms: list[str], location: str = "", limit: int = 10
+) -> list[dict]:
+    """YouTube channel search via the public results page — no API key. The real
+    creator-discovery source (subscriber counts, verified badges, niche bios)."""
+    channels: dict[str, dict] = {}
+    queries = [t for t in terms[:3] if t]
+    if location and queries:
+        queries.append(f"{queries[0]} {location}")
+    for q in queries[:4]:
+        try:
+            resp = await client.get(
+                "https://www.youtube.com/results",
+                params={"search_query": q, "sp": _YT_CHANNELS_ONLY},
+                headers=_YT_HEADERS,
+                timeout=25.0,
+            )
+        except httpx.HTTPError:
+            continue
+        if resp.status_code != 200:
+            continue
+        m = re.search(r"ytInitialData\s*=\s*(\{.+?\});</script>", resp.text)
+        if not m:
+            continue
+        try:
+            data = json.loads(m.group(1))
+        except json.JSONDecodeError:
+            continue
+
+        def walk(node) -> None:
+            if isinstance(node, dict):
+                cr = node.get("channelRenderer")
+                if cr and cr.get("channelId") and cr["channelId"] not in channels:
+                    channels[cr["channelId"]] = cr
+                for v in node.values():
+                    walk(v)
+            elif isinstance(node, list):
+                for v in node:
+                    walk(v)
+
+        walk(data)
+
+    out = []
+    for cid, cr in channels.items():
+        name = (cr.get("title") or {}).get("simpleText", "").strip()
+        if not name or name.endswith(" - Topic"):
+            continue  # auto-generated topic channels are not people
+        handle = (cr.get("subscriberCountText") or {}).get("simpleText", "")
+        url = f"https://www.youtube.com/{handle}" if handle.startswith("@") else f"https://www.youtube.com/channel/{cid}"
+        subs = _parse_subscriber_count((cr.get("videoCountText") or {}).get("simpleText", ""))
+        desc = "".join(r.get("text", "") for r in (cr.get("descriptionSnippet") or {}).get("runs", []))
+        verified = any(
+            (b.get("metadataBadgeRenderer") or {}).get("style") == "BADGE_STYLE_TYPE_VERIFIED"
+            for b in cr.get("ownerBadges", [])
+        )
+        emails = _clean_emails(desc)
+        out.append({
+            "id": f"youtube:{cid}",
+            "name": name,
+            "headline": desc.replace("\n", " ")[:200] or f"YouTube channel {handle or name}",
+            "location": "",
+            "source": "youtube",
+            "profile_url": url,
+            "avatar_url": (((cr.get("thumbnail") or {}).get("thumbnails") or [{}])[-1]).get("url", ""),
+            "platforms": {"youtube": url},
+            "stats": {
+                "followers": subs,
+                "verified": verified,
+                "published_emails": emails,
             },
         })
     out.sort(key=lambda c: c["stats"]["followers"], reverse=True)
@@ -1394,6 +1485,9 @@ async def discover_emails(candidate: dict) -> list[dict]:
             if isinstance(batch, list):
                 results.extend(batch)
 
+    for addr in candidate.get("stats", {}).get("published_emails", []):
+        results.append({"address": addr, "source": f"{candidate.get('source', 'profile')} bio", "url": candidate.get("profile_url", "")})
+
     seen, unique = set(), []
     for e in results:
         if e["address"] not in seen:
@@ -1524,6 +1618,8 @@ async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
             tasks["stackoverflow"] = search_stackoverflow(client, topic_terms)
         if "openalex" in sources:
             tasks["openalex"] = search_openalex(client, topic_terms)
+        if "youtube" in sources:
+            tasks["youtube"] = search_youtube(client, topic_terms, location=plan.get("location", ""))
         if "producthunt" in sources:
             tasks["producthunt"] = search_producthunt(
                 client,

@@ -24,6 +24,14 @@ is NOT on PATH — always use `python3 -m uvicorn`).
   OpenAlex (`api.openalex.org`, works search → aggregate authorships → batch author
   details with `filter=openalex_id:A1|A2`; pass `mailto=` for the polite pool).
 - GDELT doc API persistently 429s this datacenter IP — do not integrate.
+- YouTube channel search works WITHOUT an API key: GET youtube.com/results
+  ?search_query=X&sp=EgIQAg== (channels filter), parse ytInitialData JSON from the
+  HTML -> channelRenderer entries (subs count is in videoCountText.simpleText in the
+  new layout; handle in subscriberCountText). Verified OK from datacenter IPs.
+  Channel descriptions often contain published business emails.
+- GitHub API from Render's shared egress IP: unauthenticated search (10 req/min)
+  is often exhausted by other tenants; stale stored tokens also silently kill the
+  connector. `_gh_get` retries 403/429 and drops auth on 401.
 - Wikipedia API gotcha: `cllimit` (and similar per-prop limits) is shared across ALL
   pages in a multi-title request — always use `cllimit=max` or most pages get zero
   categories and the person-filter silently drops them. Category members

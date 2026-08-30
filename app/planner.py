@@ -23,7 +23,7 @@ Return ONLY a JSON object with this shape:
   "role_keywords": ["keyword1", "keyword2"],
   "location": "city/country/state or empty string",
   "platforms": ["instagram", "tiktok", "youtube", "x", "linkedin", "github"],
-  "sources": ["github", "wikipedia", "hackernews", "mastodon", "devto", "producthunt", "wikidata", "bluesky", "stackoverflow", "openalex", "opencorporates", "websearch"],
+  "sources": ["github", "wikipedia", "hackernews", "mastodon", "devto", "producthunt", "wikidata", "bluesky", "stackoverflow", "openalex", "youtube", "opencorporates", "websearch"],
   "github_query": "GitHub USER-search string using only free-text keywords plus location:/language:/followers:>N qualifiers (N <= 100), e.g. 'machine learning location:berlin followers:>50', or empty string if github not useful",
   "wiki_terms": ["2-4 short Wikipedia search terms for kinds of people"],
   "hn_terms": ["1-3 short keyword terms for Hacker News story search"],
@@ -38,6 +38,7 @@ Rules:
 - For researcher/scientist/professor queries, "openalex" must be included.
 - For technical-expertise queries, "stackoverflow" and "github" should be included.
 - "bluesky" is a good default for founders, journalists, creators and professionals.
+- "youtube" is essential for any creator/influencer query (real channels, subscriber counts, verified badges).
 - Keep every list short and specific. No invented names.
 - If the request is about social-media influencers/creators/public figures, "wikidata" must be included and occupations should be specific (e.g. 'beauty YouTuber' not just 'YouTuber' when the niche is beauty).
 - "wikidata" and "wikipedia" are best for notable/public people; "github"/"hackernews" for builders and engineers.
