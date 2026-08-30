@@ -263,6 +263,23 @@ tr.detail-row.open td .detail-box { display: block; animation: rise .3s both; }
   padding: 14px; max-width: 720px;
 }
 .outreach-text.on { display: block; animation: rise .35s both; }
+.email-box { margin-top: 14px; max-width: 720px; }
+.email-box .eb-title { font-family: 'JetBrains Mono'; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin-bottom: 8px; }
+.email-item {
+  display: flex; align-items: center; gap: 10px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px; margin-bottom: 7px;
+  font-family: 'JetBrains Mono'; font-size: 13px; animation: rise .3s both;
+}
+.email-item .addr { color: var(--brand-deep); font-weight: 600; }
+.email-item .src { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.email-item .copy {
+  margin-left: auto; border: 1px solid var(--line); background: var(--surface); border-radius: 7px;
+  padding: 4px 11px; font-size: 11px; font-weight: 600; cursor: pointer; color: var(--ink-2);
+  font-family: 'Instrument Sans'; transition: all .18s;
+}
+.email-item .copy:hover { border-color: var(--brand); color: var(--brand-deep); }
+.email-none { font-size: 13px; color: var(--muted); font-style: italic; }
+.email-loading { font-size: 13px; color: var(--brand-deep); font-family: 'JetBrains Mono'; }
 .empty { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 17px; }
 .err {
   max-width: 780px; margin: 0 auto 24px; border: 1px solid #f0caca; background: #fdf1f1; color: #b03131;
@@ -617,17 +634,60 @@ function personRows(c, i) {
   detail.innerHTML = `<td colspan="7"><div class="detail-box">
     ${c.fit_reason ? `<div class="fit"></div>` : ""}
     ${(c.highlights || []).length ? `<ul class="highlights">${c.highlights.map(() => "<li></li>").join("")}</ul>` : ""}
+    <div class="email-box"><div class="eb-title">✉ Public email discovery</div><div class="email-list"></div></div>
     <button class="outreach-btn">✦ Draft outreach message</button>
     <div class="outreach-text"></div>
   </div></td>`;
   if (c.fit_reason) detail.querySelector(".fit").textContent = c.fit_reason;
   detail.querySelectorAll(".highlights li").forEach((li, j) => li.textContent = c.highlights[j]);
 
+  let emailsLoaded = false;
+  async function loadEmails() {
+    if (emailsLoaded) return;
+    emailsLoaded = true;
+    const list = detail.querySelector(".email-list");
+    list.innerHTML = `<div class="email-loading">scanning public sources for published emails…</div>`;
+    try {
+      const r = await fetch("/api/emails", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidate: c })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || "failed");
+      if (!d.emails.length) {
+        list.innerHTML = `<div class="email-none">No publicly published email found for this person.</div>`;
+        return;
+      }
+      list.innerHTML = "";
+      d.emails.forEach(e => {
+        const item = document.createElement("div");
+        item.className = "email-item";
+        item.innerHTML = `<span class="addr"></span><span class="src"></span><button class="copy">Copy</button>`;
+        item.querySelector(".addr").textContent = e.address;
+        item.querySelector(".src").textContent = "via " + e.source;
+        item.querySelector(".copy").addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          navigator.clipboard.writeText(e.address);
+          ev.target.textContent = "Copied ✓";
+          setTimeout(() => ev.target.textContent = "Copy", 1500);
+        });
+        list.appendChild(item);
+      });
+    } catch (e) {
+      list.innerHTML = `<div class="email-none">Email lookup failed — try again.</div>`;
+      emailsLoaded = false;
+    }
+  }
+
   tr.querySelector(".check-btn").addEventListener("click", (e) => {
     e.stopPropagation();
     detail.classList.toggle("open");
+    if (detail.classList.contains("open")) loadEmails();
   });
-  tr.addEventListener("click", () => detail.classList.toggle("open"));
+  tr.addEventListener("click", () => {
+    detail.classList.toggle("open");
+    if (detail.classList.contains("open")) loadEmails();
+  });
 
   const btn = detail.querySelector(".outreach-btn");
   const box = detail.querySelector(".outreach-text");

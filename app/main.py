@@ -19,6 +19,10 @@ class OutreachRequest(BaseModel):
     candidate: dict
 
 
+class EmailRequest(BaseModel):
+    candidate: dict
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "model": config.LLM_MODEL, "provider": config.LLM_BASE_URL}
@@ -64,6 +68,12 @@ async def outreach(req: OutreachRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM outreach failed: {e}")
     return {"message": message.strip()}
+
+
+@app.post("/api/emails")
+async def emails(req: EmailRequest):
+    found = await connectors.discover_emails(req.candidate)
+    return {"emails": found}
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

@@ -363,6 +363,127 @@ async def enrich_company_logos(candidates: list[dict]) -> None:
         c["company_logo"] = logo_map.get(c.get("company", "").strip(), "")
 
 
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_EMAIL_BLOCKLIST = (
+    "noreply", "no-reply", "example.com", "example.org", "sentry", "localhost",
+    "users.noreply.github.com", "@2x.", "@3x.", "w3.org", "schema.org",
+    "creativecommons", "wikimedia", "mediawiki", "bot@", "placeholder",
+)
+
+
+def _clean_emails(text: str) -> list[str]:
+    found = []
+    for m in _EMAIL_RE.finditer(text or ""):
+        addr = m.group(0).lower().strip(".")
+        if any(b in addr for b in _EMAIL_BLOCKLIST):
+            continue
+        if addr not in found:
+            found.append(addr)
+    return found
+
+
+async def _emails_from_github(client: httpx.AsyncClient, login: str) -> list[dict]:
+    """Emails a GitHub user published: profile field + public commit authorship."""
+    headers = _headers({"Accept": "application/vnd.github+json"})
+    if config.GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {config.GITHUB_TOKEN}"
+    out = []
+
+    resp = await client.get(f"https://api.github.com/users/{login}", headers=headers)
+    if resp.status_code == 200:
+        email = (resp.json().get("email") or "").strip().lower()
+        if email and not any(b in email for b in _EMAIL_BLOCKLIST):
+            out.append({"address": email, "source": "GitHub profile", "url": f"https://github.com/{login}"})
+
+    # Public events expose commit author emails the user pushed with.
+    resp = await client.get(
+        f"https://api.github.com/users/{login}/events/public",
+        params={"per_page": 30},
+        headers=headers,
+    )
+    if resp.status_code == 200:
+        for event in resp.json():
+            if event.get("type") != "PushEvent":
+                continue
+            for commit in event.get("payload", {}).get("commits", []):
+                addr = (commit.get("author", {}).get("email") or "").lower()
+                if addr and not any(b in addr for b in _EMAIL_BLOCKLIST):
+                    if all(e["address"] != addr for e in out):
+                        out.append({"address": addr, "source": "GitHub commits", "url": f"https://github.com/{login}"})
+    return out
+
+
+async def _emails_from_hackernews(client: httpx.AsyncClient, username: str) -> list[dict]:
+    resp = await client.get(f"https://hacker-news.firebaseio.com/v0/user/{username}.json")
+    if resp.status_code != 200:
+        return []
+    about = html.unescape(resp.json().get("about", "") or "")
+    return [
+        {"address": a, "source": "Hacker News bio", "url": f"https://news.ycombinator.com/user?id={username}"}
+        for a in _clean_emails(re.sub(r"<[^>]+>", " ", about))
+    ]
+
+
+async def _emails_from_wikidata(client: httpx.AsyncClient, qid: str) -> list[dict]:
+    resp = await client.get(f"https://www.wikidata.org/wiki/Special:EntityData/{qid}.json", headers=_headers())
+    if resp.status_code != 200:
+        return []
+    claims = resp.json()["entities"].get(qid, {}).get("claims", {})
+    out = []
+    for claim in claims.get("P968", []):  # email address property
+        addr = (claim.get("mainsnak", {}).get("datavalue", {}).get("value") or "").lower()
+        if addr and not any(b in addr for b in _EMAIL_BLOCKLIST):
+            out.append({"address": addr, "source": "Wikidata", "url": f"https://www.wikidata.org/wiki/{qid}"})
+    return out
+
+
+async def _emails_from_website(client: httpx.AsyncClient, url: str) -> list[dict]:
+    """Scan a person's own public website for mailto: links and published addresses."""
+    try:
+        resp = await client.get(url, headers=_headers({"Accept": "text/html"}), follow_redirects=True, timeout=12.0)
+    except httpx.HTTPError:
+        return []
+    if resp.status_code != 200 or "text/html" not in resp.headers.get("content-type", ""):
+        return []
+    body = resp.text[:400_000]
+    mailtos = [m.replace("mailto:", "").split("?")[0] for m in re.findall(r"mailto:([^\"'>\s]+)", body, re.I)]
+    text = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>", " ", body)
+    found = _clean_emails(" ".join(mailtos)) + [a for a in _clean_emails(re.sub(r"<[^>]+>", " ", text)) if a not in _clean_emails(" ".join(mailtos))]
+    return [{"address": a, "source": "personal website", "url": url} for a in found[:4]]
+
+
+async def discover_emails(candidate: dict) -> list[dict]:
+    """Find email addresses this person has publicly published. Never guesses."""
+    platforms = candidate.get("platforms", {})
+    results: list[dict] = []
+
+    async with httpx.AsyncClient(timeout=config.HTTP_TIMEOUT) as client:
+        calls = []
+        if "github" in platforms:
+            calls.append(_emails_from_github(client, platforms["github"].rstrip("/").rsplit("/", 1)[-1]))
+        if "hackernews" in platforms:
+            calls.append(_emails_from_hackernews(client, platforms["hackernews"].split("id=")[-1]))
+        if "wikidata" in platforms:
+            calls.append(_emails_from_wikidata(client, platforms["wikidata"].rsplit("/", 1)[-1]))
+        for key in ("website", "blog"):
+            if key in platforms:
+                calls.append(_emails_from_website(client, platforms[key]))
+        # GitHub blog field stored in stats
+        blog = candidate.get("stats", {}).get("blog", "")
+        if blog and blog.startswith("http"):
+            calls.append(_emails_from_website(client, blog))
+        for batch in await asyncio.gather(*calls, return_exceptions=True):
+            if isinstance(batch, list):
+                results.extend(batch)
+
+    seen, unique = set(), []
+    for e in results:
+        if e["address"] not in seen:
+            seen.add(e["address"])
+            unique.append(e)
+    return unique
+
+
 async def gather_candidates(plan: dict) -> list[dict]:
     sources = set(plan.get("sources", []))
     async with httpx.AsyncClient(timeout=config.HTTP_TIMEOUT) as client:
