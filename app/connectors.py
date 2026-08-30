@@ -132,6 +132,82 @@ async def search_wikipedia(client: httpx.AsyncClient, terms: list[str], limit_pe
     return list(candidates.values())
 
 
+_US_STATES = {
+    "alabama": "us_al", "alaska": "us_ak", "arizona": "us_az", "arkansas": "us_ar",
+    "california": "us_ca", "colorado": "us_co", "connecticut": "us_ct", "delaware": "us_de",
+    "florida": "us_fl", "georgia": "us_ga", "hawaii": "us_hi", "idaho": "us_id",
+    "illinois": "us_il", "indiana": "us_in", "iowa": "us_ia", "kansas": "us_ks",
+    "kentucky": "us_ky", "louisiana": "us_la", "maine": "us_me", "maryland": "us_md",
+    "massachusetts": "us_ma", "michigan": "us_mi", "minnesota": "us_mn", "mississippi": "us_ms",
+    "missouri": "us_mo", "montana": "us_mt", "nebraska": "us_ne", "nevada": "us_nv",
+    "new hampshire": "us_nh", "new jersey": "us_nj", "new mexico": "us_nm", "new york": "us_ny",
+    "north carolina": "us_nc", "north dakota": "us_nd", "ohio": "us_oh", "oklahoma": "us_ok",
+    "oregon": "us_or", "pennsylvania": "us_pa", "rhode island": "us_ri", "south carolina": "us_sc",
+    "south dakota": "us_sd", "tennessee": "us_tn", "texas": "us_tx", "utah": "us_ut",
+    "vermont": "us_vt", "virginia": "us_va", "washington": "us_wa", "west virginia": "us_wv",
+    "wisconsin": "us_wi", "wyoming": "us_wy",
+}
+
+
+def _us_jurisdiction(location: str) -> str:
+    for state, code in _US_STATES.items():
+        if state in (location or "").lower():
+            return code
+    return ""
+
+
+async def search_opencorporates(
+    client: httpx.AsyncClient,
+    terms: list[str],
+    location: str = "",
+    limit: int = 12,
+) -> list[dict]:
+    """Real company officers/founders from public business registries (OpenCorporates).
+    Requires OPENCORPORATES_TOKEN (free registration); silently skipped without it."""
+    if not config.OPENCORPORATES_TOKEN:
+        return []
+    params: dict = {"q": " ".join(terms[:4]) or "founder", "api_token": config.OPENCORPORATES_TOKEN}
+    jurisdiction = _us_jurisdiction(location)
+    if jurisdiction:
+        params["jurisdiction_code"] = jurisdiction
+    resp = await client.get(
+        "https://api.opencorporates.com/v0.4/officers/search",
+        params=params,
+        headers=_headers(),
+        timeout=30.0,
+    )
+    if resp.status_code != 200:
+        return []
+    out = []
+    for item in resp.json().get("results", {}).get("officers", []):
+        officer = item["officer"]
+        company = officer.get("company", {})
+        company_name = company.get("name", "")
+        url = officer.get("opencorporates_url") or company.get("opencorporates_url", "")
+        company_url = company.get("opencorporates_url", "")
+        out.append({
+            "id": f"opencorporates:{officer.get('name')}:{company_name}",
+            "name": officer.get("name", "").title(),
+            "headline": f"{officer.get('position') or 'Officer'} at {company_name}".strip(),
+            "location": company.get("registered_address_in_full", "") or company.get("jurisdiction_code", ""),
+            "source": "opencorporates",
+            "profile_url": url,
+            "avatar_url": "",
+            "platforms": {
+                "website": url,
+                "opencorporates": company_url or url,
+            },
+            "stats": {
+                "company": company_name,
+                "position": officer.get("position", ""),
+                "company_jurisdiction": company.get("jurisdiction_code", ""),
+            },
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 async def search_hackernews(client: httpx.AsyncClient, terms: list[str], limit: int = 6) -> list[dict]:
     authors: dict[str, int] = {}
     for term in terms[:3]:
@@ -636,6 +712,10 @@ async def gather_candidates(plan: dict) -> list[dict]:
             tasks.append(search_wikipedia(client, plan.get("wiki_terms", [])))
         if "hackernews" in sources:
             tasks.append(search_hackernews(client, plan.get("hn_terms", [])))
+        if "opencorporates" in sources:
+            terms = plan.get("role_keywords", []) or plan.get("wiki_terms", [])
+            location = plan.get("location") or plan.get("country", "")
+            tasks.append(search_opencorporates(client, terms, location))
         if "wikidata" in sources:
             tasks.append(
                 search_wikidata(client, plan.get("occupations", []), plan.get("country", ""))

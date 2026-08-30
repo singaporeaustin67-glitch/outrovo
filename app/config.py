@@ -13,6 +13,7 @@ LLM_FALLBACK_MODELS = [
     if m.strip()
 ]
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+OPENCORPORATES_TOKEN = os.getenv("OPENCORPORATES_TOKEN", "")  # free with registration
 
 HTTP_TIMEOUT = 20.0
 USER_AGENT = "Outrovo/1.0 (https://outrovo.ai; people-search-agent)"

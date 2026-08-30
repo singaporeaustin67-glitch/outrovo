@@ -25,7 +25,15 @@ class EmailRequest(BaseModel):
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "model": config.LLM_MODEL, "provider": config.LLM_BASE_URL}
+    return {
+        "status": "ok",
+        "model": config.LLM_MODEL,
+        "provider": config.LLM_BASE_URL,
+        "sources": {
+            "opencorporates": bool(config.OPENCORPORATES_TOKEN),
+            "github": bool(config.GITHUB_TOKEN),
+        },
+    }
 
 
 @app.post("/api/search")
