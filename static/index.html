@@ -183,58 +183,80 @@ section { padding: 84px 0; }
 .t-val { color: #e8f2ea; }
 .scan { display: inline-block; width: 8px; height: 14px; background: var(--lime); margin-left: 6px; animation: pulse .8s steps(2) infinite; }
 .results-meta { text-align: center; color: var(--muted); font-size: 14px; margin-bottom: 34px; font-family: 'JetBrains Mono'; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
-.card {
+.table-wrap {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 24px; animation: rise .5s both; transition: all .25s; display: flex; flex-direction: column;
+  overflow-x: auto; box-shadow: var(--shadow);
 }
-.card:hover { border-color: var(--brand); transform: translateY(-3px); box-shadow: var(--shadow); }
-.card-top { display: flex; gap: 14px; align-items: flex-start; }
+table.results { width: 100%; border-collapse: collapse; min-width: 900px; }
+table.results th {
+  text-align: left; font-family: 'JetBrains Mono'; font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .12em; color: var(--muted);
+  padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--bg);
+}
+table.results td { padding: 14px 18px; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: 14.5px; }
+table.results tbody tr.person-row { cursor: pointer; transition: background .15s; animation: rise .4s both; }
+table.results tbody tr.person-row:hover { background: #fbfdf9; }
+table.results tbody tr.person-row:last-of-type td { border-bottom: none; }
+.cell-person { display: flex; align-items: center; gap: 13px; min-width: 200px; }
 .avatar {
-  width: 50px; height: 50px; border-radius: 14px; background: var(--brand-soft); color: var(--brand-deep);
-  display: grid; place-items: center; font-family: 'Bricolage Grotesque'; font-weight: 800; font-size: 18px;
+  width: 42px; height: 42px; border-radius: 50%; background: var(--brand-soft); color: var(--brand-deep);
+  display: grid; place-items: center; font-family: 'Bricolage Grotesque'; font-weight: 800; font-size: 15px;
   overflow: hidden; flex-shrink: 0;
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
-.card-id { flex: 1; min-width: 0; }
-.card-name { font-family: 'Bricolage Grotesque'; font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-src { font-family: 'JetBrains Mono'; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; margin-top: 3px; }
-.card-src b { color: var(--brand); font-weight: 600; }
-.score {
-  flex-shrink: 0; text-align: center; border-radius: 12px; padding: 8px 10px; min-width: 56px;
-  font-family: 'Bricolage Grotesque'; font-weight: 800; font-size: 19px;
+.cell-name { font-weight: 600; font-size: 15px; }
+.cell-sub { font-family: 'JetBrains Mono'; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; margin-top: 2px; }
+.match { display: inline-flex; align-items: center; gap: 8px; font-family: 'Bricolage Grotesque'; font-weight: 800; font-size: 16px; }
+.match .mdot { width: 9px; height: 9px; border-radius: 50%; }
+.match.hi { color: var(--brand-deep); } .match.hi .mdot { background: #22b573; box-shadow: 0 0 6px rgba(34,181,115,.5); }
+.match.mid { color: #b45309; } .match.mid .mdot { background: var(--amber); }
+.match.lo { color: var(--muted); } .match.lo .mdot { background: #c3ccc5; }
+.socials { display: flex; gap: 6px; }
+.socials a {
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  text-decoration: none; font-size: 11px; font-weight: 700; transition: transform .15s;
+  border: 1px solid var(--line); color: var(--ink-2); background: var(--surface);
 }
-.score small { display: block; font-family: 'JetBrains Mono'; font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: .1em; opacity: .7; }
-.score.hi { background: var(--brand-soft); color: var(--brand-deep); }
-.score.mid { background: #fdf3e0; color: #b45309; }
-.score.lo { background: #f1f3ef; color: var(--muted); }
-.card-head { color: var(--ink-2); font-size: 13.5px; margin-top: 13px; min-height: 40px; }
-.card-loc { font-family: 'JetBrains Mono'; font-size: 11px; color: var(--muted); margin-top: 6px; }
+.socials a:hover { transform: translateY(-2px); border-color: var(--brand); color: var(--brand-deep); }
+.socials a.s-linkedin { background: #0a66c2; border-color: #0a66c2; color: #fff; }
+.socials a.s-x { background: #101812; border-color: #101812; color: #fff; }
+.socials a.s-instagram { background: linear-gradient(45deg, #f9ce34, #ee2a7b, #6228d7); border: none; color: #fff; }
+.socials a.s-youtube { background: #ff0033; border-color: #ff0033; color: #fff; }
+.socials a.s-tiktok { background: #101812; border-color: #101812; color: #25f4ee; }
+.socials a.s-github { background: #24292f; border-color: #24292f; color: #fff; }
+.cell-company { font-weight: 600; color: var(--ink); }
+.cell-role { color: var(--ink-2); }
+.cell-country { font-family: 'JetBrains Mono'; font-size: 13px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.cell-country .flag { font-size: 17px; margin-right: 7px; }
+.check-btn {
+  display: inline-flex; align-items: center; gap: 7px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 999px; padding: 8px 17px;
+  font-family: 'Instrument Sans'; font-weight: 600; font-size: 13px; color: var(--ink);
+  cursor: pointer; transition: all .2s; white-space: nowrap;
+}
+.check-btn:hover { border-color: var(--brand); color: var(--brand-deep); background: var(--brand-soft); }
+tr.detail-row td { background: #fbfdf9; padding: 0 18px; }
+.detail-box { padding: 18px 6px 22px; display: none; }
+tr.detail-row.open td .detail-box { display: block; animation: rise .3s both; }
 .fit {
-  margin-top: 13px; padding: 12px 14px; border-left: 3px solid var(--brand);
+  padding: 13px 15px; border-left: 3px solid var(--brand);
   background: var(--brand-soft); border-radius: 0 10px 10px 0;
-  font-size: 13.5px; line-height: 1.55; color: var(--brand-deep); flex: 1;
+  font-size: 13.5px; line-height: 1.55; color: var(--brand-deep); max-width: 720px;
 }
 .highlights { margin-top: 11px; display: flex; flex-direction: column; gap: 5px; }
-.highlights li { list-style: none; font-size: 12px; color: var(--muted); padding-left: 17px; position: relative; }
+.highlights li { list-style: none; font-size: 12.5px; color: var(--muted); padding-left: 17px; position: relative; }
 .highlights li::before { content: "▸"; position: absolute; left: 0; color: var(--brand); }
-.platforms { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
-.platforms a {
-  font-family: 'JetBrains Mono'; font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em;
-  color: var(--ink-2); text-decoration: none; border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px;
-  transition: all .18s;
-}
-.platforms a:hover { border-color: var(--brand); color: var(--brand-deep); background: var(--brand-soft); }
 .outreach-btn {
-  margin-top: 15px; width: 100%; background: var(--surface); border: 1px dashed var(--brand);
-  color: var(--brand-deep); border-radius: 11px; padding: 11px; font-weight: 600; font-size: 13px;
+  margin-top: 14px; background: var(--surface); border: 1px dashed var(--brand);
+  color: var(--brand-deep); border-radius: 11px; padding: 10px 20px; font-weight: 600; font-size: 13px;
   cursor: pointer; transition: all .2s; font-family: 'Instrument Sans';
 }
 .outreach-btn:hover { background: var(--brand-soft); }
 .outreach-btn:disabled { opacity: .55; cursor: wait; }
 .outreach-text {
   margin-top: 11px; display: none; white-space: pre-wrap; font-size: 13px; line-height: 1.65;
-  color: var(--ink-2); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
+  color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px; max-width: 720px;
 }
 .outreach-text.on { display: block; animation: rise .35s both; }
 .empty { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 17px; }
@@ -424,7 +446,23 @@ footer { padding: 56px 0 40px; }
     <div class="err" id="err"></div>
     <div class="trace" id="trace"></div>
     <div class="results-meta" id="resultsMeta"></div>
-    <div class="cards" id="cards"></div>
+    <div class="table-wrap" id="tableWrap" style="display:none;">
+      <table class="results">
+        <thead>
+          <tr>
+            <th>Person</th>
+            <th>Match</th>
+            <th>Socials</th>
+            <th>Organization</th>
+            <th>Role</th>
+            <th>Contact</th>
+            <th>Country</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty" style="display:none;"></div>
   </div>
 </section>
 
@@ -528,40 +566,69 @@ function traceLine(tag, val, scan) {
 
 function scoreClass(s) { return s >= 70 ? "hi" : s >= 40 ? "mid" : "lo"; }
 
-function card(c, i) {
+const SOCIAL_ICONS = {
+  linkedin: "in", x: "𝕏", instagram: "◎", youtube: "▶",
+  tiktok: "♪", github: "⌥", hackernews: "Y", wikipedia: "W", wikidata: "◈", website: "↗"
+};
+
+function flagEmoji(cc) {
+  if (!cc || cc.length !== 2) return "";
+  return String.fromCodePoint(...[...cc.toUpperCase()].map(ch => 0x1F1E6 + ch.charCodeAt(0) - 65));
+}
+
+function personRows(c, i) {
   const score = c.fit_score || 0;
   const initials = c.name.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
-  const platforms = Object.entries(c.platforms || {})
-    .map(([k, u]) => `<a href="${u}" target="_blank" rel="noopener">${k}</a>`).join("");
-  const el = document.createElement("div");
-  el.className = "card";
-  el.style.animationDelay = (i * 0.06) + "s";
-  el.innerHTML = `
-    <div class="card-top">
+  const socials = Object.entries(c.platforms || {})
+    .filter(([k]) => SOCIAL_ICONS[k])
+    .map(([k, u]) => `<a class="s-${k}" href="${u}" target="_blank" rel="noopener" title="${k}">${SOCIAL_ICONS[k]}</a>`)
+    .join("");
+
+  const tr = document.createElement("tr");
+  tr.className = "person-row";
+  tr.style.animationDelay = (i * 0.05) + "s";
+  tr.innerHTML = `
+    <td><div class="cell-person">
       <div class="avatar">${c.avatar_url ? `<img src="${c.avatar_url}" loading="lazy" onerror="this.remove()">` : initials}</div>
-      <div class="card-id">
-        <div class="card-name"></div>
-        <div class="card-src">via <b></b></div>
-      </div>
-      <div class="score ${scoreClass(score)}">${score}<small>fit</small></div>
-    </div>
-    <div class="card-head"></div>
-    ${c.location ? `<div class="card-loc">◈ <span></span></div>` : ""}
+      <div><div class="cell-name"></div><div class="cell-sub"></div></div>
+    </div></td>
+    <td><span class="match ${scoreClass(score)}"><span class="mdot"></span>${score}%</span></td>
+    <td><div class="socials">${socials}</div></td>
+    <td class="cell-company"></td>
+    <td class="cell-role"></td>
+    <td><button class="check-btn">✉ Check</button></td>
+    <td class="cell-country"></td>`;
+  tr.querySelector(".cell-name").textContent = c.name;
+  tr.querySelector(".cell-sub").textContent = "via " + c.source;
+  tr.querySelector(".cell-company").textContent = c.company || "—";
+  const headline = (c.headline || "").trim();
+  const cleanHeadline = /https?:\/\/|@/.test(headline) ? "" : headline.slice(0, 60);
+  tr.querySelector(".cell-role").textContent = c.role || cleanHeadline || "—";
+  tr.querySelector(".cell-country").innerHTML = c.country_code
+    ? `<span class="flag">${flagEmoji(c.country_code)}</span>${c.country_code}`
+    : (c.location ? `<span class="flag">◈</span>${c.location.slice(0, 14)}` : "—");
+
+  const detail = document.createElement("tr");
+  detail.className = "detail-row";
+  detail.innerHTML = `<td colspan="7"><div class="detail-box">
     ${c.fit_reason ? `<div class="fit"></div>` : ""}
     ${(c.highlights || []).length ? `<ul class="highlights">${c.highlights.map(() => "<li></li>").join("")}</ul>` : ""}
-    <div class="platforms">${platforms}</div>
     <button class="outreach-btn">✦ Draft outreach message</button>
-    <div class="outreach-text"></div>`;
-  el.querySelector(".card-name").textContent = c.name;
-  el.querySelector(".card-src b").textContent = c.source;
-  el.querySelector(".card-head").textContent = c.headline || "—";
-  if (c.location) el.querySelector(".card-loc span").textContent = c.location;
-  if (c.fit_reason) el.querySelector(".fit").textContent = c.fit_reason;
-  el.querySelectorAll(".highlights li").forEach((li, j) => li.textContent = c.highlights[j]);
+    <div class="outreach-text"></div>
+  </div></td>`;
+  if (c.fit_reason) detail.querySelector(".fit").textContent = c.fit_reason;
+  detail.querySelectorAll(".highlights li").forEach((li, j) => li.textContent = c.highlights[j]);
 
-  const btn = el.querySelector(".outreach-btn");
-  const box = el.querySelector(".outreach-text");
-  btn.addEventListener("click", async () => {
+  tr.querySelector(".check-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    detail.classList.toggle("open");
+  });
+  tr.addEventListener("click", () => detail.classList.toggle("open"));
+
+  const btn = detail.querySelector(".outreach-btn");
+  const box = detail.querySelector(".outreach-text");
+  btn.addEventListener("click", async (e) => {
+    e.stopPropagation();
     btn.disabled = true; btn.textContent = "✦ Drafting…";
     try {
       const r = await fetch("/api/outreach", {
@@ -577,7 +644,7 @@ function card(c, i) {
       btn.textContent = "✦ Failed — retry";
     } finally { btn.disabled = false; }
   });
-  return el;
+  return [tr, detail];
 }
 
 async function runSearch() {
@@ -588,7 +655,9 @@ async function runSearch() {
   $("err").style.display = "none";
   $("results").classList.add("on");
   $("trace").innerHTML = "";
-  $("cards").innerHTML = "";
+  $("rows").innerHTML = "";
+  $("tableWrap").style.display = "none";
+  $("empty").style.display = "none";
   $("resultsMeta").textContent = "";
   const scanning = traceLine("agent", "planning search across live sources…", true);
   $("results").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -611,9 +680,19 @@ async function runSearch() {
     $("resultsMeta").textContent =
       `${d.results.length} matches · ${d.total_candidates} scanned · ${d.elapsed_seconds}s`;
     if (!d.results.length) {
-      $("cards").innerHTML = `<div class="empty">No matching people found in live sources — try rephrasing your request.</div>`;
+      $("empty").textContent = "No matching people found in live sources — try rephrasing your request.";
+      $("empty").style.display = "block";
     } else {
-      d.results.forEach((c, i) => $("cards").appendChild(card(c, i)));
+      $("tableWrap").style.display = "block";
+      const shown = d.results.filter(c => (c.fit_score || 0) > 0);
+      (shown.length ? shown : d.results).forEach((c, i) => {
+        const [tr, detail] = personRows(c, i);
+        $("rows").appendChild(tr);
+        $("rows").appendChild(detail);
+      });
+      if (shown.length < d.results.length) {
+        $("resultsMeta").textContent += ` · ${d.results.length - shown.length} irrelevant hidden`;
+      }
     }
   } catch (e) {
     scanning.querySelector(".scan")?.remove();

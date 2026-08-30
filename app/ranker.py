@@ -14,7 +14,10 @@ Return ONLY a JSON array, one object per candidate id you were given:
     "id": "<candidate id>",
     "fit_score": <integer 0-100>,
     "fit_reason": "1-2 sentence honest assessment of why this person does or does not match",
-    "highlights": ["up to 3 concrete evidence points from the profile data"]
+    "highlights": ["up to 3 concrete evidence points from the profile data"],
+    "role": "their job title or role, e.g. 'Founding Partner', 'Software Engineer', 'Beauty Creator' — empty string if unknown",
+    "company": "the company/organization they work at or founded — empty string if unknown",
+    "country_code": "ISO 3166-1 alpha-2 code of their country (e.g. 'US', 'DE') — empty string if unknown"
   }}
 ]
 
@@ -63,6 +66,9 @@ async def rank_candidates(query: str, candidates: list[dict]) -> list[dict]:
         c["fit_score"] = int(review.get("fit_score", 0) or 0)
         c["fit_reason"] = review.get("fit_reason", "")
         c["highlights"] = review.get("highlights", [])
+        c["role"] = review.get("role", "") or c.get("stats", {}).get("occupation", "")
+        c["company"] = review.get("company", "") or c.get("stats", {}).get("company", "").lstrip("@")
+        c["country_code"] = (review.get("country_code", "") or "").upper()[:2]
         c.pop("bio", None)
         ranked.append(c)
     ranked.sort(key=lambda c: c["fit_score"], reverse=True)

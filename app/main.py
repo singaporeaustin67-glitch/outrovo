@@ -35,7 +35,15 @@ async def search(req: SearchRequest):
     except Exception:
         # Rate-limit congestion: return unranked real data rather than failing.
         ranked = [
-            {**c, "fit_score": 0, "fit_reason": "AI review temporarily unavailable (LLM rate limited).", "highlights": []}
+            {
+                **c,
+                "fit_score": 0,
+                "fit_reason": "AI review temporarily unavailable (LLM rate limited).",
+                "highlights": [],
+                "role": c.get("stats", {}).get("occupation", ""),
+                "company": c.get("stats", {}).get("company", "").lstrip("@"),
+                "country_code": "",
+            }
             for c in candidates
         ]
 
