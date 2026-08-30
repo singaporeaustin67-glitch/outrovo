@@ -33,6 +33,14 @@ def _conn() -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS feedback "
         "(id INTEGER PRIMARY KEY AUTOINCREMENT, person_id TEXT, query TEXT, vote INTEGER, created_at REAL)"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS searches "
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT, created_at REAL)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS search_entries "
+        "(search_id INTEGER, source TEXT, count INTEGER)"
+    )
     return conn
 
 
@@ -193,6 +201,51 @@ def feedback_scores(query: str) -> dict[str, float]:
     conn.close()
     return {r[0]: float(r[1]) for r in rows}
 
+
+
+# ---- per-search source telemetry ----
+
+def record_search_query(query: str) -> int:
+    conn = _conn()
+    with conn:
+        cur = conn.execute("INSERT INTO searches (query, created_at) VALUES (?, ?)",
+                           (query, time.time()))
+        sid = cur.lastrowid
+    conn.close()
+    return sid
+
+
+def record_search_entries(search_id: int, entries: dict[str, int]) -> None:
+    conn = _conn()
+    with conn:
+        conn.executemany(
+            "INSERT INTO search_entries (search_id, source, count) VALUES (?, ?, ?)",
+            [(search_id, src, n) for src, n in entries.items()],
+        )
+    conn.close()
+
+
+def source_health(since_days: int = 7) -> list[dict]:
+    """Per-source emptiness over recent searches, joined with whether the
+    search's terms were actually relevant to that source — distinguishes 'no
+    data on the topic' from 'connector broken'."""
+    cutoff = time.time() - since_days * 86400
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT e.source, COUNT(*) AS searched, "
+        "SUM(CASE WHEN e.count = 0 THEN 1 ELSE 0 END) AS empty, "
+        "AVG(e.count) AS avg_n "
+        "FROM search_entries e JOIN searches s ON s.id = e.search_id "
+        "WHERE s.created_at >= ? GROUP BY e.source ORDER BY searched DESC",
+        (cutoff,),
+    ).fetchall()
+    conn.close()
+    return [
+        {"source": r[0], "searches": r[1], "empty": r[2],
+         "empty_pct": round(100 * r[2] / r[1]) if r[1] else 0,
+         "avg_results": round(r[3], 1) if r[3] else 0}
+        for r in rows
+    ]
 
 def _load() -> dict:
     try:

@@ -49,11 +49,12 @@ The LLM layer is provider-agnostic (any OpenAI-compatible endpoint):
 Per-minute rate limits are retried with backoff; daily-quota 429s fail over to
 the next model automatically.
 
-### Deploying to Render
+### Deploying to Render / one-command setup
 
-The service deploys from `render.yaml`. After each deploy, confirm these env vars
-are set in the Render dashboard (**Environment** tab) — they are `sync: false`
-(placeholders) in the blueprint and must be filled in manually once:
+Run `bash setup.sh` once: it validates every free credential (LLM, GitHub,
+Tavily, optional SMTP), fixes `.env`, and prints exactly which values to paste
+into Render → outrovo → **Environment** (secrets masked). The service deploys
+from `render.yaml`; fill these env vars once (`sync: false` placeholders):
 
 - `LLM_API_KEY`, `LLM_BASE_URL` — required
 - `GITHUB_TOKEN` — **without it, GitHub search runs unauthenticated at 10 req/min

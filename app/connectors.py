@@ -442,11 +442,16 @@ async def search_mastodon(client: httpx.AsyncClient, terms: list[str], limit: in
     """Mastodon's public account search — real people, real follower counts, no key."""
     seen: dict[str, dict] = {}
     for term in terms[:3]:
-        resp = await client.get(
-            "https://mastodon.social/api/v2/search",
-            params={"q": term, "type": "accounts", "limit": 10, "resolve": "false"},
-            headers=_headers(),
-        )
+        for attempt in range(2):  # one retry on mastodon.social's tight rate limit
+            resp = await client.get(
+                "https://mastodon.social/api/v2/search",
+                params={"q": term, "type": "accounts", "limit": 10, "resolve": "false"},
+                headers=_headers(),
+            )
+            if resp.status_code == 429 and attempt == 0:
+                await asyncio.sleep(float(resp.headers.get("retry-after", 3)))
+                continue
+            break
         if resp.status_code != 200:
             continue
         for acc in resp.json().get("accounts", []):
@@ -493,11 +498,16 @@ async def search_devto(client: httpx.AsyncClient, terms: list[str], limit: int =
     authors: dict[str, dict] = {}
 
     async def fetch_tag(tag: str, label: str) -> None:
-        resp = await client.get(
-            "https://dev.to/api/articles",
-            params={"tag": tag, "per_page": 15, "top": 7},
-            headers=_headers(),
-        )
+        for attempt in range(2):
+            resp = await client.get(
+                "https://dev.to/api/articles",
+                params={"tag": tag, "per_page": 15, "top": 7},
+                headers=_headers(),
+            )
+            if resp.status_code == 429 and attempt == 0:
+                await asyncio.sleep(float(resp.headers.get("retry-after", 3)))
+                continue
+            break
         if resp.status_code != 200:
             return
         for art in resp.json():
@@ -1656,6 +1666,12 @@ async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
             *(track(name, coro) for name, coro in tasks.items()),
             return_exceptions=True,
         )
+
+    # Telemetry: what each source actually contributed — feeds /api/health/sources
+    # so "no data" (topic has none) is distinguishable from "connector broken".
+    sid = cache.record_search_query(plan.get("intent_summary", "") or str(plan.get("occupations", "")))
+    entries = {name: (len(r) if isinstance(r, list) else 0) for name, r in zip(tasks, results)}
+    cache.record_search_entries(sid, entries)
 
     candidates: list[dict] = []
     seen_ids: set[str] = set()

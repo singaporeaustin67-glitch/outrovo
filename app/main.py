@@ -114,6 +114,13 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
+@app.get("/api/health/sources")
+async def health_sources():
+    """Per-source emptiness over the last 7 days — distinguishes 'no data exists
+    for that topic' from 'connector broken'."""
+    return {"window_days": 7, "sources": cache.source_health()}
+
+
 @app.get("/api/search/stream")
 async def search_stream(q: str):
     """Same pipeline as POST /api/search, streamed as real progress events."""
