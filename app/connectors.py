@@ -334,27 +334,62 @@ Return ONLY a JSON array:
 """
 
 
+# Public SearXNG instances that allow JSON API queries without a key. Rotated
+# at runtime — some rate-limit datacenter IPs, so we try several.
+_SEARXNG_INSTANCES = [
+    "https://searx.be",
+    "https://search.inetol.net",
+    "https://priv.au",
+    "https://search.bus-hit.me",
+    "https://searx.tiekoetter.com",
+]
+
+
+async def _searxng_search(client: httpx.AsyncClient, query: str) -> list[dict]:
+    """Keyless web search via public SearXNG instances (JSON API). Instances
+    are queried concurrently — first one returning JSON results wins, so worst-
+    case added latency is one timeout, not one per instance."""
+    async def try_instance(inst: str) -> list[dict]:
+        try:
+            resp = await client.get(
+                f"{inst}/search",
+                params={"q": query, "format": "json", "language": "en"},
+                headers={**_headers(), "Accept": "application/json"},
+                timeout=10.0,
+            )
+            if resp.status_code != 200 or "json" not in resp.headers.get("content-type", ""):
+                return []
+            results = resp.json().get("results", [])
+            return [
+                {"url": r.get("url", ""), "title": r.get("title", ""),
+                 "content": r.get("content", "")}
+                for r in results[:15]
+            ]
+        except Exception:
+            return []
+    found = await asyncio.gather(*(try_instance(i) for i in _SEARXNG_INSTANCES))
+    return max(found, key=len, default=[])
+
+
 async def search_websearch(client: httpx.AsyncClient, query: str, occupations: list[str], location: str) -> list[dict]:
-    """Real web-search layer (Tavily free tier) for founders/professionals that
-    Wikidata & friends miss — e.g. local business owners. Extracts real names only
-    from real snippets via LLM. Requires TAVILY_API_KEY; auto-skips without it."""
-    if not config.TAVILY_API_KEY:
-        logger.warning("websearch skipped: TAVILY_API_KEY not set")
-        return []
+    """Real web-search layer for founders/professionals that Wikidata & friends
+    miss — e.g. local business owners. Extracts real names only from real
+    snippets via LLM. Uses Tavily when TAVILY_API_KEY is set; otherwise falls
+    back to keyless public SearXNG instances."""
     topic = " ".join(occupations[:3]) or query
-    resp = await client.post(
-        "https://api.tavily.com/search",
-        headers={"Authorization": f"Bearer {config.TAVILY_API_KEY}"},
-        json={
-            "query": f"{topic} {location}".strip(),
-            "search_depth": "advanced",
-            "max_results": 15,
-        },
-        timeout=45.0,
-    )
-    if resp.status_code != 200:
-        return []
-    results = resp.json().get("results", [])
+    full_query = f"{topic} {location}".strip()
+    if config.TAVILY_API_KEY:
+        resp = await client.post(
+            "https://api.tavily.com/search",
+            headers={"Authorization": f"Bearer {config.TAVILY_API_KEY}"},
+            json={"query": full_query, "search_depth": "advanced", "max_results": 15},
+            timeout=45.0,
+        )
+        if resp.status_code != 200:
+            return []
+        results = resp.json().get("results", [])
+    else:
+        results = await _searxng_search(client, full_query)
     if not results:
         return []
     snippets = "\n".join(
@@ -1273,6 +1308,43 @@ async def enrich_company_logos(candidates: list[dict]) -> None:
 
 
 _YT_CHANNEL_RE = re.compile(r"/channel/(UC[\w-]+)")
+
+
+_X_HANDLE_RE = re.compile(r"(?:x\.com|twitter\.com)/(@?[A-Za-z0-9_]{1,15})")
+
+
+async def enrich_x_stats(candidates: list[dict], max_fetch: int = 8) -> None:
+    """Fill real X follower counts via the keyless public fxTwitter API.
+    Only fetches for candidates that actually surfaced an X handle."""
+    targets = []
+    for c in candidates:
+        s = c.get("stats", {})
+        if s.get("x_followers") is not None:
+            continue
+        url = c.get("platforms", {}).get("x", "")
+        m = _X_HANDLE_RE.search(url)
+        if m:
+            targets.append((c, m.group(1).lstrip("@")))
+    if not targets:
+        return
+    async with httpx.AsyncClient(timeout=config.HTTP_TIMEOUT) as client:
+        async def fetch(cand: dict, handle: str) -> None:
+            try:
+                resp = await client.get(
+                    f"https://api.fxtwitter.com/{handle}", headers=_headers())
+                if resp.status_code != 200 or "json" not in resp.headers.get("content-type", ""):
+                    return
+                u = resp.json().get("user", {})
+                followers = u.get("followers")
+                if followers is None:
+                    return
+                cand["stats"]["x_followers"] = followers
+                cand["stats"]["x_tweets"] = u.get("tweets", 0)
+                if not cand.get("avatar_url") and u.get("avatar_url"):
+                    cand["avatar_url"] = u["avatar_url"]
+            except Exception:
+                return
+        await asyncio.gather(*(fetch(c, h) for c, h in targets[:max_fetch]))
 
 
 async def enrich_follower_counts(candidates: list[dict], max_fetch: int = 6) -> None:

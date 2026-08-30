@@ -81,6 +81,7 @@ async def search(req: SearchRequest):
         await asyncio.gather(
             connectors.enrich_company_logos(ranked),
             connectors.enrich_follower_counts(ranked),
+            connectors.enrich_x_stats(ranked),
         )
     except Exception:
         # Rate-limit congestion: return unranked real data rather than failing.
@@ -160,6 +161,7 @@ async def search_stream(q: str):
             await asyncio.gather(
                 connectors.enrich_company_logos(ranked),
                 connectors.enrich_follower_counts(ranked),
+                connectors.enrich_x_stats(ranked),
             )
         except Exception:
             ranked = [

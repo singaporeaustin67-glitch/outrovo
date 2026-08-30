@@ -56,3 +56,12 @@ is NOT on PATH — always use `python3 -m uvicorn`).
   auto-sent), feedback. `POST /api/feedback` votes adjust ranker prescore (+3/vote)
   and final fit_score (+5/vote, clamped 0-100).
 - Reddit JSON API 403s datacenter IPs; public SearXNG instances 429 — don't bother.
+
+## Iter 9: keyless X data + SearXNG findings
+- api.fxtwitter.com/{handle} — keyless real X user data (followers, tweets, avatar).
+  Used by enrich_x_stats() for candidates that surfaced an X handle. Rate-limits
+  after several rapid calls; send browser UA, tolerate non-JSON bodies.
+- Public SearXNG JSON API is effectively dead from datacenter IPs: 12 instances
+  probed, all 429 or JSON disabled (text/html). search_websearch() falls back to
+  concurrent SearXNG attempts when TAVILY_API_KEY is unset (best-effort, bounded
+  latency), but expect empty — Tavily remains the only working websearch.
