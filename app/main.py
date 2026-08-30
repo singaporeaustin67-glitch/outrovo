@@ -1,8 +1,9 @@
 import asyncio
+import json
 import time
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -80,6 +81,79 @@ async def search(req: SearchRequest):
         cache.put(req.query, result)
         cache.record(req.query, len(ranked))
     return result
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@app.get("/api/search/stream")
+async def search_stream(q: str):
+    """Same pipeline as POST /api/search, streamed as real progress events."""
+
+    async def gen():
+        started = time.time()
+        cached = cache.get(q)
+        if cached is not None:
+            yield _sse("plan", cached.get("plan", {}))
+            yield _sse("done", {**cached, "cached": True,
+                               "elapsed_seconds": round(time.time() - started, 1)})
+            return
+
+        yield _sse("status", {"text": "AI planning the search…"})
+        plan = await planner.build_plan(q)
+        yield _sse("plan", plan)
+
+        queue: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(
+            connectors.gather_candidates(plan, on_event=queue.put_nowait)
+        )
+        while not task.done() or not queue.empty():
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=0.5)
+                yield _sse("source", event)
+            except asyncio.TimeoutError:
+                continue
+        candidates = task.result() if not task.cancelled() else []
+        if task.exception():
+            candidates = []
+
+        yield _sse("status", {"text": f"AI reviewing {len(candidates)} profiles…",
+                              "count": len(candidates)})
+        try:
+            ranked = await ranker.rank_candidates(q, candidates)
+            yield _sse("status", {"text": "Enriching logos and follower counts…"})
+            await asyncio.gather(
+                connectors.enrich_company_logos(ranked),
+                connectors.enrich_follower_counts(ranked),
+            )
+        except Exception:
+            ranked = [
+                {
+                    **c,
+                    "fit_score": 0,
+                    "fit_reason": "AI review temporarily unavailable (LLM rate limited).",
+                    "highlights": [],
+                    "role": c.get("stats", {}).get("occupation", ""),
+                    "company": c.get("stats", {}).get("company", "").lstrip("@"),
+                    "country_code": "",
+                }
+                for c in candidates
+            ]
+
+        result = {
+            "query": q,
+            "plan": plan,
+            "total_candidates": len(candidates),
+            "results": ranked,
+            "elapsed_seconds": round(time.time() - started, 1),
+        }
+        if ranked:
+            cache.put(q, result)
+            cache.record(q, len(ranked))
+        yield _sse("done", result)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.get("/api/history")

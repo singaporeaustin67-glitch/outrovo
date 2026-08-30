@@ -825,36 +825,47 @@ async def discover_emails(candidate: dict) -> list[dict]:
     return unique
 
 
-async def gather_candidates(plan: dict) -> list[dict]:
+async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
     sources = set(plan.get("sources", []))
     async with httpx.AsyncClient(timeout=config.HTTP_TIMEOUT) as client:
-        tasks = []
+        tasks: dict[str, asyncio.Task] = {}
         if "github" in sources:
-            tasks.append(search_github(client, plan.get("github_query", "")))
+            tasks["github"] = search_github(client, plan.get("github_query", ""))
         if "wikipedia" in sources:
-            tasks.append(search_wikipedia(client, plan.get("wiki_terms", [])))
+            tasks["wikipedia"] = search_wikipedia(client, plan.get("wiki_terms", []))
         if "hackernews" in sources:
-            tasks.append(search_hackernews(client, plan.get("hn_terms", [])))
+            tasks["hackernews"] = search_hackernews(client, plan.get("hn_terms", []))
         if "opencorporates" in sources:
             terms = plan.get("role_keywords", []) or plan.get("wiki_terms", [])
             location = plan.get("location") or plan.get("country", "")
-            tasks.append(search_opencorporates(client, terms, location))
+            tasks["opencorporates"] = search_opencorporates(client, terms, location)
         if "websearch" in sources:
             location = plan.get("location") or plan.get("country", "")
-            tasks.append(search_websearch(client, query=plan.get("intent_summary", ""), occupations=plan.get("occupations", []), location=location))
+            tasks["websearch"] = search_websearch(client, query=plan.get("intent_summary", ""), occupations=plan.get("occupations", []), location=location)
         if "wikidata" in sources:
-            tasks.append(
-                search_wikidata(client, plan.get("occupations", []), plan.get("country", ""))
-            )
+            tasks["wikidata"] = search_wikidata(client, plan.get("occupations", []), plan.get("country", ""))
             # Wikidata coverage is thin for some regions/topics; Wikipedia full-text
             # complements it even when the planner picked only Wikidata.
-            if "wikipedia" not in sources:
+            if "wikipedia" not in tasks:
                 terms = plan.get("wiki_terms", []) or [
                     f"{plan.get('country', '')} {occ}".strip() for occ in plan.get("occupations", [])[:3]
                 ]
-                tasks.append(search_wikipedia(client, terms))
+                tasks["wikipedia"] = search_wikipedia(client, terms)
                 plan["sources"] = sorted(set(plan.get("sources", [])) | {"wikipedia"})
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        async def track(name: str, coro) -> list[dict]:
+            try:
+                found = await coro
+            except Exception:
+                found = []
+            if on_event:
+                on_event({"type": "source", "source": name, "count": len(found)})
+            return found
+
+        results = await asyncio.gather(
+            *(track(name, coro) for name, coro in tasks.items()),
+            return_exceptions=True,
+        )
 
     candidates: list[dict] = []
     for r in results:

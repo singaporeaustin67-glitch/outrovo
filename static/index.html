@@ -796,7 +796,30 @@ function personRows(c, i) {
   return [tr, detail];
 }
 
-async function runSearch() {
+function renderResults(d) {
+  traceLine("scanned", d.total_candidates + " real profiles → AI-reviewed in " + d.elapsed_seconds + "s");
+  lastResults = d;
+  $("exportBar").style.display = "block";
+  $("resultsMeta").textContent =
+    `${d.results.length} matches · ${d.total_candidates} scanned · ${d.elapsed_seconds}s`;
+  if (!d.results.length) {
+    $("empty").textContent = "No matching people found in live sources — try rephrasing your request.";
+    $("empty").style.display = "block";
+  } else {
+    $("tableWrap").style.display = "block";
+    const shown = d.results.filter(c => (c.fit_score || 0) > 0);
+    (shown.length ? shown : d.results).forEach((c, i) => {
+      const [tr, detail] = personRows(c, i);
+      $("rows").appendChild(tr);
+      $("rows").appendChild(detail);
+    });
+    if (shown.length < d.results.length) {
+      $("resultsMeta").textContent += ` · ${d.results.length - shown.length} irrelevant hidden`;
+    }
+  }
+}
+
+function runSearch() {
   const q = $("query").value.trim();
   if (q.length < 3) return;
   lastQuery = q;
@@ -807,51 +830,43 @@ async function runSearch() {
   $("rows").innerHTML = "";
   $("tableWrap").style.display = "none";
   $("empty").style.display = "none";
+  $("exportBar").style.display = "none";
   $("resultsMeta").textContent = "";
-  const scanning = traceLine("agent", "planning search across live sources…", true);
+  let live = traceLine("agent", "planning search across live sources…", true);
   $("results").scrollIntoView({ behavior: "smooth", block: "start" });
 
-  try {
-    const r = await fetch("/api/search", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: q })
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || "search failed");
-    scanning.querySelector(".t-val").textContent = d.plan.intent_summary || q;
-    scanning.querySelector(".scan")?.remove();
-    traceLine("sources", (d.plan.sources || []).join(" · "));
-    if (d.plan.occupations?.length) traceLine("occupations", d.plan.occupations.join(", "));
-    if (d.plan.country) traceLine("country", d.plan.country);
-    if (d.plan.github_query) traceLine("github", d.plan.github_query);
-    traceLine("scanned", d.total_candidates + " real profiles → AI-reviewed in " + d.elapsed_seconds + "s");
-
-    lastResults = d;
-    $("exportBar").style.display = "block";
-    $("resultsMeta").textContent =
-      `${d.results.length} matches · ${d.total_candidates} scanned · ${d.elapsed_seconds}s`;
-    if (!d.results.length) {
-      $("empty").textContent = "No matching people found in live sources — try rephrasing your request.";
-      $("empty").style.display = "block";
-    } else {
-      $("tableWrap").style.display = "block";
-      const shown = d.results.filter(c => (c.fit_score || 0) > 0);
-      (shown.length ? shown : d.results).forEach((c, i) => {
-        const [tr, detail] = personRows(c, i);
-        $("rows").appendChild(tr);
-        $("rows").appendChild(detail);
-      });
-      if (shown.length < d.results.length) {
-        $("resultsMeta").textContent += ` · ${d.results.length - shown.length} irrelevant hidden`;
-      }
-    }
-  } catch (e) {
-    scanning.querySelector(".scan")?.remove();
-    $("err").textContent = "⚠ " + e.message;
-    $("err").style.display = "block";
-  } finally {
+  const src = new EventSource("/api/search/stream?q=" + encodeURIComponent(q));
+  src.addEventListener("status", e => {
+    const d = JSON.parse(e.data);
+    live.querySelector(".scan")?.remove();
+    live = traceLine("agent", d.text, true);
+  });
+  src.addEventListener("plan", e => {
+    const p = JSON.parse(e.data);
+    live.querySelector(".scan")?.remove();
+    live = traceLine("agent", p.intent_summary || q, true);
+    if (p.sources?.length) traceLine("sources", p.sources.join(" · "));
+    if (p.occupations?.length) traceLine("occupations", p.occupations.join(", "));
+    if (p.country) traceLine("country", p.country);
+    if (p.github_query) traceLine("github", p.github_query);
+  });
+  src.addEventListener("source", e => {
+    const d = JSON.parse(e.data);
+    traceLine("source", `✓ ${d.source} — ${d.count} profiles`);
+  });
+  src.addEventListener("done", e => {
+    src.close();
+    live.querySelector(".scan")?.remove();
+    renderResults(JSON.parse(e.data));
     $("searchBtn").disabled = false;
-  }
+  });
+  src.onerror = () => {
+    src.close();
+    live.querySelector(".scan")?.remove();
+    $("err").textContent = "⚠ search stream interrupted — please try again";
+    $("err").style.display = "block";
+    $("searchBtn").disabled = false;
+  };
 }
 </script>
 </body>
