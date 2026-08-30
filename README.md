@@ -49,6 +49,21 @@ The LLM layer is provider-agnostic (any OpenAI-compatible endpoint):
 Per-minute rate limits are retried with backoff; daily-quota 429s fail over to
 the next model automatically.
 
+### Deploying to Render
+
+The service deploys from `render.yaml`. After each deploy, confirm these env vars
+are set in the Render dashboard (**Environment** tab) — they are `sync: false`
+(placeholders) in the blueprint and must be filled in manually once:
+
+- `LLM_API_KEY`, `LLM_BASE_URL` — required
+- `GITHUB_TOKEN` — **without it, GitHub search runs unauthenticated at 10 req/min
+  shared across all Render tenants on the same egress IP, so github results will
+  often be empty.** Generate at https://github.com/settings/tokens (classic, no
+  scopes needed — public data only) and paste it in.
+- `TAVILY_API_KEY` — enables web search (free key at https://tavily.com); without
+  it `/api/health` shows `"websearch": false` and local-business/niche queries
+  lose coverage.
+
 ## API
 
 - `POST /api/search` `{ "query": "..." }` → plan + ranked real people

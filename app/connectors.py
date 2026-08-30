@@ -35,6 +35,28 @@ def _sanitize_github_query(query: str) -> str:
     return " ".join(kept)
 
 
+async def _gh_get(client: httpx.AsyncClient, url: str, headers: dict, **kwargs) -> httpx.Response | None:
+    """GET with short retry on rate limiting — shared datacenter IPs (Render) burn
+    through the 10 req/min unauthenticated search quota fast."""
+    for attempt in range(4):
+        try:
+            resp = await client.get(url, headers=headers, **kwargs)
+        except httpx.HTTPError:
+            await asyncio.sleep(2 * (attempt + 1))
+            continue
+        if resp.status_code == 200:
+            return resp
+        if resp.status_code == 401:
+            headers.pop("Authorization", None)  # token invalid — continue unauthenticated
+            continue
+        if resp.status_code in (403, 429):
+            retry_after = resp.headers.get("retry-after")
+            await asyncio.sleep(float(retry_after) if retry_after else 2 * (attempt + 1))
+            continue
+        return resp
+    return None
+
+
 async def search_github(client: httpx.AsyncClient, gh_query: str, limit: int = 8) -> list[dict]:
     if not gh_query:
         return []
@@ -45,19 +67,20 @@ async def search_github(client: httpx.AsyncClient, gh_query: str, limit: int = 8
     for q in (_sanitize_github_query(gh_query), _sanitize_github_query(gh_query).split("followers:")[0].strip()):
         if not q:
             continue
-        resp = await client.get(
+        resp = await _gh_get(
+            client,
             "https://api.github.com/search/users",
+            headers,
             params={"q": q, "per_page": limit, "sort": "followers"},
-            headers=headers,
         )
-        if resp.status_code == 200:
+        if resp is not None and resp.status_code == 200:
             items = resp.json().get("items", [])
         if items:
             break
 
     async def detail(login: str) -> dict | None:
-        r = await client.get(f"https://api.github.com/users/{login}", headers=headers)
-        if r.status_code != 200:
+        r = await _gh_get(client, f"https://api.github.com/users/{login}", headers)
+        if r is None or r.status_code != 200:
             return None
         u = r.json()
         platforms = {"github": u["html_url"]}
