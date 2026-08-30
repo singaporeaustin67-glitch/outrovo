@@ -31,6 +31,7 @@ async def health():
         "provider": config.LLM_BASE_URL,
         "sources": {
             "opencorporates": bool(config.OPENCORPORATES_TOKEN),
+            "websearch": bool(config.TAVILY_API_KEY),
             "github": bool(config.GITHUB_TOKEN),
         },
     }

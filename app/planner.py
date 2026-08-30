@@ -9,6 +9,7 @@ Available data sources:
 - hackernews: only real tech/builder community members (avoid for local or non-tech businesses)
 - wikidata: real notable people with verified social-media handles (influencers, creators, athletes, musicians, politicians, founders, experts) — searchable by occupation and country
 - opencorporates: real company officers/founders from public business registries — the right source for local business owners/executives (e.g. 'construction company founders in Ohio')
+- websearch: real web-search for founders/professionals via live snippets + LLM extraction (best for local businesses, niche professionals, recent press)
 
 Return ONLY a JSON object with this shape:
 {
@@ -16,7 +17,7 @@ Return ONLY a JSON object with this shape:
   "role_keywords": ["keyword1", "keyword2"],
   "location": "city/country/state or empty string",
   "platforms": ["instagram", "tiktok", "youtube", "x", "linkedin", "github"],
-  "sources": ["github", "wikipedia", "hackernews", "wikidata", "opencorporates"],
+  "sources": ["github", "wikipedia", "hackernews", "wikidata", "opencorporates", "websearch"],
   "github_query": "GitHub USER-search string using only free-text keywords plus location:/language:/followers:>N qualifiers (N <= 100), e.g. 'machine learning location:berlin followers:>50', or empty string if github not useful",
   "wiki_terms": ["2-4 short Wikipedia search terms for kinds of people"],
   "hn_terms": ["1-3 short keyword terms for Hacker News story search"],
@@ -26,7 +27,7 @@ Return ONLY a JSON object with this shape:
 
 Rules:
 - Only include sources that can plausibly surface the requested people.
-- For local small-business founders/owners (construction, retail, restaurants, contracting), "opencorporates" must be included and "hackernews" excluded.
+- For local small-business founders/owners (construction, retail, restaurants, contracting), "opencorporates" and/or "websearch" must be included and "hackernews" excluded.
 - Keep every list short and specific. No invented names.
 - If the request is about social-media influencers/creators/public figures, "wikidata" must be included and occupations should be specific (e.g. 'beauty YouTuber' not just 'YouTuber' when the niche is beauty).
 - "wikidata" and "wikipedia" are best for notable/public people; "github"/"hackernews" for builders and engineers.

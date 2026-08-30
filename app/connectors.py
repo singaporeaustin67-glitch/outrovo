@@ -8,7 +8,7 @@ from urllib.parse import quote_plus
 
 import httpx
 
-from . import config
+from . import config, llm
 
 
 def _headers(extra: dict | None = None) -> dict:
@@ -205,6 +205,79 @@ async def search_opencorporates(
         })
         if len(out) >= limit:
             break
+    return out
+
+
+_EXTRACT_PROMPT = """You extract REAL people from web search results. Below are real search snippets for pages about {query}.
+
+Snippets:
+{snippets}
+
+Extract up to 10 people who match what the user is looking for. Use ONLY names/roles/companies that literally appear in the snippets. Never invent anything.
+
+Return ONLY a JSON array:
+[{{"name": "First Last", "role": "their title (CEO/Founder/Owner...)", "company": "company name", "source_url": "the snippet URL that mentions them"}}]
+"""
+
+
+async def search_websearch(client: httpx.AsyncClient, query: str, occupations: list[str], location: str) -> list[dict]:
+    """Real web-search layer (Tavily free tier) for founders/professionals that
+    Wikidata & friends miss — e.g. local business owners. Extracts real names only
+    from real snippets via LLM. Requires TAVILY_API_KEY; auto-skips without it."""
+    if not config.TAVILY_API_KEY:
+        return []
+    topic = " ".join(occupations[:3]) or query
+    resp = await client.post(
+        "https://api.tavily.com/search",
+        headers={"Authorization": f"Bearer {config.TAVILY_API_KEY}"},
+        json={
+            "query": f"{topic} {location}".strip(),
+            "search_depth": "advanced",
+            "max_results": 15,
+        },
+        timeout=45.0,
+    )
+    if resp.status_code != 200:
+        return []
+    results = resp.json().get("results", [])
+    if not results:
+        return []
+    snippets = "\n".join(
+        f"- url: {r.get('url', '')}\n  title: {r.get('title', '')}\n  snippet: {(r.get('content') or '')[:280]}"
+        for r in results
+    )
+    try:
+        text = await llm.chat(
+            [{"role": "user", "content": _EXTRACT_PROMPT.format(query=query, snippets=snippets)}],
+            temperature=0.0,
+            max_tokens=2000,
+        )
+        people = llm.extract_json(text)
+    except Exception:
+        return []
+    if not isinstance(people, list):
+        return []
+    out = []
+    for p in people:
+        if not isinstance(p, dict):
+            continue
+        name = (p.get("name") or "").strip()
+        if not name or len(name) > 60:
+            continue
+        url = (p.get("source_url") or "").strip()
+        role = (p.get("role") or "").strip()
+        company = (p.get("company") or "").strip()
+        out.append({
+            "id": f"websearch:{name.lower()}:{company.lower()}",
+            "name": name,
+            "headline": f"{role or 'Founder'} at {company}".strip(" at"),
+            "location": location,
+            "source": "websearch",
+            "profile_url": url,
+            "avatar_url": "",
+            "platforms": {"website": url} if url else {},
+            "stats": {"company": company, "position": role},
+        })
     return out
 
 
@@ -716,6 +789,9 @@ async def gather_candidates(plan: dict) -> list[dict]:
             terms = plan.get("role_keywords", []) or plan.get("wiki_terms", [])
             location = plan.get("location") or plan.get("country", "")
             tasks.append(search_opencorporates(client, terms, location))
+        if "websearch" in sources:
+            location = plan.get("location") or plan.get("country", "")
+            tasks.append(search_websearch(client, query=plan.get("intent_summary", ""), occupations=plan.get("occupations", []), location=location))
         if "wikidata" in sources:
             tasks.append(
                 search_wikidata(client, plan.get("occupations", []), plan.get("country", ""))

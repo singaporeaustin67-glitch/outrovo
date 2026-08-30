@@ -14,6 +14,7 @@ LLM_FALLBACK_MODELS = [
 ]
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 OPENCORPORATES_TOKEN = os.getenv("OPENCORPORATES_TOKEN", "")  # free with registration
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")  # free tier: https://tavily.com
 
 HTTP_TIMEOUT = 20.0
 USER_AGENT = "Outrovo/1.0 (https://outrovo.ai; people-search-agent)"
