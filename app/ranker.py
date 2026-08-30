@@ -48,8 +48,13 @@ def _format_candidates(candidates: list[dict]) -> str:
 async def rank_candidates(query: str, candidates: list[dict]) -> list[dict]:
     if not candidates:
         return []
-    # Cap the batch so the prompt stays within context limits.
-    batch = candidates[:24]
+    # Cap the batch so the prompt stays within context limits. Keep every
+    # index hit (people recalled from past searches) in the reviewed batch —
+    # they were already proven relevant once, so don't let live sources crowd
+    # them out of the 24-slot prompt.
+    indexed = [c for c in candidates if c.get("source") == "index"]
+    live = [c for c in candidates if c.get("source") != "index"]
+    batch = (indexed + live)[:24]
     text = await llm.chat(
         [{"role": "user", "content": RANK_PROMPT.format(query=query, candidates=_format_candidates(batch))}],
         temperature=0.1,

@@ -604,9 +604,15 @@ footer { padding: 56px 0 40px; }
       <a href="#compare">Compare</a>
       <a href="#faq">FAQ</a>
     </div>
-    <div class="foot-note">© 2026 Outrovo · Real people · Real profiles · AI-reviewed</div>
+    <div class="foot-note">© 2026 Outrovo · Real people · Real profiles · AI-reviewed · <span id="indexCount"></span></div>
   </div>
 </footer>
+<script>
+fetch("/api/health").then(r => r.json()).then(d => {
+  const el = $("indexCount");
+  if (el && d.people_index > 0) el.textContent = `index: ${d.people_index.toLocaleString()} real profiles`;
+}).catch(() => {});
+</script>
 
 <script>
 const $ = (id) => document.getElementById(id);

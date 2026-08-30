@@ -8,7 +8,7 @@ from urllib.parse import quote_plus
 
 import httpx
 
-from . import config, llm
+from . import cache, config, llm
 
 
 def _headers(extra: dict | None = None) -> dict:
@@ -1109,4 +1109,21 @@ async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
     for r in results:
         if isinstance(r, list):
             candidates.extend(r)
+
+    # Merge in real people found in past searches (our own growing index),
+    # skipping anyone already returned by the live sources.
+    known = {c.get("id") for c in candidates}
+    terms = (
+        (plan.get("occupations") or [])
+        + (plan.get("role_keywords") or [])
+        + (plan.get("hn_terms") or [])
+    )
+    for hit in cache.search_people_index(terms):
+        if hit.get("id") not in known:
+            known.add(hit.get("id"))
+            hit["source"] = hit.get("source", "index")
+            candidates.append(hit)
+
+    # Persist everyone we found so the index keeps growing.
+    cache.store_people([c for c in candidates if c.get("source") != "index"])
     return candidates

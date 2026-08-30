@@ -15,7 +15,75 @@ def _conn() -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS history "
         "(id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT, matches INTEGER, created_at REAL)"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS people "
+        "(person_id TEXT PRIMARY KEY, data TEXT, seen_at REAL)"
+    )
     return conn
+
+
+# ---- persistent people index (grows with every search) ----
+
+def store_people(candidates: list[dict]) -> None:
+    """Remember every real person we've ever found — the seed of our own index."""
+    conn = _conn()
+    with conn:
+        for c in candidates:
+            pid = c.get("id")
+            if not pid:
+                continue
+            conn.execute(
+                "INSERT OR REPLACE INTO people (person_id, data, seen_at) VALUES (?, ?, ?)",
+                (pid, json.dumps(c, ensure_ascii=False), time.time()),
+            )
+    conn.close()
+
+
+def people_index_size() -> int:
+    conn = _conn()
+    n = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
+    conn.close()
+    return n
+
+
+# Generic words that would match almost every stored profile.
+_STOP = {"the", "and", "with", "who", "that", "based", "people", "person", "building"}
+
+
+def search_people_index(terms: list[str], limit: int = 20) -> list[dict]:
+    """Instant recall from our own index of everyone found in past searches.
+
+    Matches any meaningful full term; for multi-word terms also matches each
+    distinctive word so recall doesn't depend on the planner's exact phrasing.
+    """
+    needles: set[str] = set()
+    for t in terms:
+        t = (t or "").lower().strip()
+        if len(t) < 3:
+            continue
+        if " " in t:
+            needles.add(t)
+            for w in t.split():
+                if len(w) > 3 and w not in _STOP:
+                    needles.add(w)
+        else:
+            needles.add(t)
+    if not needles:
+        return []
+    conn = _conn()
+    rows = conn.execute("SELECT data FROM people").fetchall()
+    conn.close()
+    hits = []
+    for (blob,) in rows:
+        low = blob.lower()
+        if any(n in low for n in needles):
+            try:
+                hits.append(json.loads(blob))
+            except json.JSONDecodeError:
+                continue
+        if len(hits) >= limit:
+            break
+    return hits
 
 
 def record(query: str, matches: int) -> None:

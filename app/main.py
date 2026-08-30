@@ -37,6 +37,7 @@ async def health():
         "status": "ok",
         "model": config.LLM_MODEL,
         "provider": config.LLM_BASE_URL,
+        "people_index": cache.people_index_size(),
         "sources": {
             "opencorporates": bool(config.OPENCORPORATES_TOKEN),
             "websearch": bool(config.TAVILY_API_KEY),
