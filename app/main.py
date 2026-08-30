@@ -42,6 +42,8 @@ async def health():
             "opencorporates": bool(config.OPENCORPORATES_TOKEN),
             "websearch": bool(config.TAVILY_API_KEY),
             "github": bool(config.GITHUB_TOKEN),
+            "keyless": ["wikipedia", "wikidata", "hackernews", "mastodon", "devto",
+                        "bluesky", "stackoverflow", "openalex"],
         },
     }
 

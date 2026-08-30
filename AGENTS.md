@@ -18,6 +18,25 @@ is NOT on PATH — always use `python3 -m uvicorn`).
 - Real data sources that work reliably from this environment:
   Wikidata SPARQL (occupation + country + social handles P2003/P2002/P2397/P7085),
   Wikipedia API, GitHub API (use GITHUB_TOKEN env for higher limits), HN Algolia + Firebase API.
-- Wikidata SPARQL: avoid `wdt:P279*` subclass paths (timeouts); query per-occupation
-  QID with `ORDER BY DESC(?sitelinks)`; sanity-check resolved occupation labels.
+- Added later (all keyless, verified working): Bluesky public API
+  (`public.api.bsky.app`, searchActors + getProfiles for follower counts + bio links),
+  Stack Exchange API (`/2.3/tags/{tag}/top-answerers/all_time`, ~300 calls/day unauth),
+  OpenAlex (`api.openalex.org`, works search → aggregate authorships → batch author
+  details with `filter=openalex_id:A1|A2`; pass `mailto=` for the polite pool).
+- GDELT doc API persistently 429s this datacenter IP — do not integrate.
+- Wikipedia API gotcha: `cllimit` (and similar per-prop limits) is shared across ALL
+  pages in a multi-title request — always use `cllimit=max` or most pages get zero
+  categories and the person-filter silently drops them. Category members
+  (`list=categorymembers` on categories found via `srnamespace=14` search) give far
+  better people recall than full-text search alone.
+- Never feed generic occupation labels ("researcher", "professor") to Wikidata/
+  OpenAlex/Bluesky — unfiltered they return history's most-sitelinked humans
+  (Clinton, Confucius). `connectors._GENERIC_OCCUPATIONS` filters them; OpenAlex/
+  Bluesky take topic terms (role_keywords/hn_terms), not occupations.
+- Wikidata P27 country filter only works for actual countries; `_REGIONS` in
+  connectors.py maps continents/regions to no-filter.
+- `merge_candidates()` unifies the same person across sources (shared platform URL,
+  or exact name match only among notability-gated sources wikidata/wikipedia/index).
+- Latency profile: plan ~1s, gather ~15s, LLM rank ~15-20s (worse when Groq TPM
+  contended — 3 sequential LLM calls per search: planner, websearch-extract, ranker).
 - User requirement: NO seed/mock data — all results must come from live sources.

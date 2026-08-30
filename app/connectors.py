@@ -86,6 +86,33 @@ async def search_github(client: httpx.AsyncClient, gh_query: str, limit: int = 8
     return [u for u in users if u]
 
 
+async def _wikipedia_category_titles(client: httpx.AsyncClient, terms: list[str]) -> list[str]:
+    """Resolve terms to Wikipedia *category* pages (e.g. 'Category:Canadian
+    artificial intelligence researchers') — membership lists are the highest-recall
+    way to enumerate notable people of a kind."""
+    titles: list[str] = []
+    for term in terms[:4]:
+        resp = await client.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "query",
+                "format": "json",
+                "list": "search",
+                "srsearch": term,
+                "srnamespace": 14,
+                "srlimit": 3,
+            },
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for hit in resp.json().get("query", {}).get("search", []):
+            t = hit.get("title", "")
+            if t.startswith("Category:") and t not in titles:
+                titles.append(t)
+    return titles[:4]
+
+
 async def search_wikipedia(client: httpx.AsyncClient, terms: list[str], limit_per_term: int = 5) -> list[dict]:
     candidates: dict[str, dict] = {}
     for term in terms[:4]:
@@ -102,7 +129,7 @@ async def search_wikipedia(client: httpx.AsyncClient, terms: list[str], limit_pe
                 "exintro": 1,
                 "explaintext": 1,
                 "exsentences": 2,
-                "cllimit": 20,
+                "cllimit": "max",
                 "pithumbsize": 200,
             },
             headers=_headers(),
@@ -116,6 +143,69 @@ async def search_wikipedia(client: httpx.AsyncClient, terms: list[str], limit_pe
             if "Living people" not in cats and not re.search(r"Category:.*\b(people|births|biographies)\b", cats, re.I):
                 continue
             title = page.get("title", "")
+            extract = page.get("extract", "")
+            candidates[title] = {
+                "id": f"wikipedia:{page.get('pageid')}",
+                "name": title,
+                "headline": page.get("description") or extract[:160],
+                "location": "",
+                "source": "wikipedia",
+                "profile_url": f"https://en.wikipedia.org/wiki/{quote_plus(title.replace(' ', '_'))}",
+                "avatar_url": page.get("thumbnail", {}).get("source", ""),
+                "platforms": {"wikipedia": f"https://en.wikipedia.org/wiki/{quote_plus(title.replace(' ', '_'))}"},
+                "stats": {},
+                "bio": extract,
+            }
+
+    # Category-member recall: pages in categories like "Category:Canadian
+    # artificial intelligence researchers" rarely surface via full-text search.
+    cat_titles = await _wikipedia_category_titles(client, terms)
+    member_titles: list[str] = []
+    for cat in cat_titles:
+        resp = await client.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "query",
+                "format": "json",
+                "list": "categorymembers",
+                "cmtitle": cat,
+                "cmtype": "page",
+                "cmlimit": 20,
+            },
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for m in resp.json().get("query", {}).get("categorymembers", []):
+            t = m.get("title", "")
+            if t and ":" not in t and t not in candidates and t not in member_titles:
+                member_titles.append(t)
+    for i in range(0, len(member_titles[:40]), 40):
+        batch = member_titles[i : i + 40]
+        resp = await client.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "query",
+                "format": "json",
+                "titles": "|".join(batch),
+                "prop": "extracts|description|pageimages|categories",
+                "exintro": 1,
+                "explaintext": 1,
+                "exsentences": 2,
+                "cllimit": "max",
+                "pithumbsize": 200,
+            },
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for page in resp.json().get("query", {}).get("pages", {}).values():
+            cats = " ".join(c.get("title", "") for c in page.get("categories", []))
+            if "Living people" not in cats and not re.search(r"Category:.*\b(people|births|biographies)\b", cats, re.I):
+                continue
+            title = page.get("title", "")
+            if not title or title in candidates:
+                continue
             extract = page.get("extract", "")
             candidates[title] = {
                 "id": f"wikipedia:{page.get('pageid')}",
@@ -508,6 +598,196 @@ async def search_producthunt(client: httpx.AsyncClient, terms: list[str], limit:
     return list(makers.values())[:limit]
 
 
+_BSKY_PUBLIC = "https://public.api.bsky.app/xrpc"
+_BIO_LINK_RE = re.compile(r"(?:https?://)?(?:www\.)?(github\.com|x\.com|twitter\.com|linkedin\.com/in|youtube\.com|tik\.tok|tiktok\.com)/[^\s)\"']+", re.I)
+
+
+async def search_bluesky(client: httpx.AsyncClient, terms: list[str], limit: int = 8) -> list[dict]:
+    """Bluesky public API (no auth): real founders/journalists/researchers/creators
+    with follower counts and bio links to other platforms."""
+    actors: dict[str, dict] = {}
+    for term in terms[:3]:
+        resp = await client.get(
+            f"{_BSKY_PUBLIC}/app.bsky.actor.searchActors",
+            params={"q": term, "limit": 10},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for a in resp.json().get("actors", []):
+            did = a.get("did")
+            if did and did not in actors:
+                actors[did] = a
+    if not actors:
+        return []
+
+    profiles: dict[str, dict] = {}
+    dids = list(actors)[:25]
+    resp = await client.get(
+        f"{_BSKY_PUBLIC}/app.bsky.actor.getProfiles",
+        params=[("actors", d) for d in dids],
+        headers=_headers(),
+    )
+    if resp.status_code == 200:
+        for p in resp.json().get("profiles", []):
+            profiles[p["did"]] = p
+
+    out = []
+    for did, a in actors.items():
+        p = profiles.get(did, {})
+        description = p.get("description") or a.get("description") or ""
+        name = p.get("displayName") or a.get("displayName") or ""
+        handle = p.get("handle") or a.get("handle", "")
+        if not name and not description:
+            continue
+        platforms: dict[str, str] = {"bluesky": f"https://bsky.app/profile/{handle}"}
+        for m in _BIO_LINK_RE.finditer(description):
+            url = m.group(0)
+            if not url.startswith("http"):
+                url = "https://" + url
+            host = m.group(1).lower()
+            key = (
+                "github" if "github" in host
+                else "x" if host.startswith(("x.", "twitter."))
+                else "linkedin" if "linkedin" in host
+                else "youtube" if "youtube" in host
+                else "tiktok"
+            )
+            platforms.setdefault(key, url)
+        out.append({
+            "id": f"bluesky:{handle}",
+            "name": name or handle,
+            "headline": description.replace("\n", " ")[:200] or f"Bluesky user @{handle}",
+            "location": "",
+            "source": "bluesky",
+            "profile_url": f"https://bsky.app/profile/{handle}",
+            "avatar_url": p.get("avatar") or a.get("avatar", ""),
+            "platforms": platforms,
+            "stats": {
+                "followers": p.get("followersCount", 0),
+                "posts": p.get("postsCount", 0),
+            },
+        })
+    out.sort(key=lambda c: c["stats"]["followers"], reverse=True)
+    return out[:limit]
+
+
+async def search_stackoverflow(client: httpx.AsyncClient, tags: list[str], limit: int = 6) -> list[dict]:
+    """Stack Overflow all-time top answerers for a technology tag — real, proven experts."""
+    seen: dict[str, dict] = {}
+    for tag in tags[:2]:
+        slug = re.sub(r"[^a-z0-9.#+-]+", "-", tag.lower()).strip("-")
+        if len(slug) < 2:
+            continue
+        resp = await client.get(
+            f"https://api.stackexchange.com/2.3/tags/{slug}/top-answerers/all_time",
+            params={"site": "stackoverflow", "pagesize": 8},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for item in resp.json().get("items", []):
+            u = item.get("user") or {}
+            uid = u.get("user_id")
+            if not uid or str(uid) in seen:
+                continue
+            seen[str(uid)] = {
+                "id": f"stackoverflow:{uid}",
+                "name": html.unescape(u.get("display_name", "")),
+                "headline": f"Top Stack Overflow answerer in '{tag}' (score {item.get('score', 0)}, reputation {u.get('reputation', 0)})",
+                "location": u.get("location", ""),
+                "source": "stackoverflow",
+                "profile_url": u.get("link", ""),
+                "avatar_url": u.get("profile_image", ""),
+                "platforms": {"stackoverflow": u.get("link", "")},
+                "stats": {
+                    "reputation": u.get("reputation", 0),
+                    "tag_score": item.get("score", 0),
+                    "website": u.get("website_url", ""),
+                },
+            }
+            if u.get("website_url"):
+                seen[str(uid)]["platforms"]["website"] = u["website_url"]
+    out = sorted(seen.values(), key=lambda c: c["stats"]["tag_score"], reverse=True)
+    return out[:limit]
+
+
+async def search_openalex(client: httpx.AsyncClient, topics: list[str], limit: int = 10) -> list[dict]:
+    """OpenAlex (no key): real researchers/scientists in a field, ranked by citations,
+    with affiliations and ORCID links."""
+    authors: dict[str, dict] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://api.openalex.org/works",
+            params={
+                "search": topic,
+                "per-page": 15,
+                "sort": "cited_by_count:desc",
+                "filter": "publication_year:>2014",
+                "select": "id,cited_by_count,authorships",
+                "mailto": "hello@outrovo.ai",
+            },
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for w in resp.json().get("results", []):
+            for a in w.get("authorships", []):
+                au = a.get("author") or {}
+                aid = au.get("id")
+                if not aid:
+                    continue
+                rec = authors.setdefault(aid, {"name": au.get("display_name", ""), "cites": 0, "papers": 0, "inst": ""})
+                rec["cites"] += w.get("cited_by_count") or 0
+                rec["papers"] += 1
+                insts = a.get("institutions") or []
+                if insts and not rec["inst"]:
+                    rec["inst"] = insts[0].get("display_name", "")
+    if not authors:
+        return []
+
+    top = sorted(authors.items(), key=lambda kv: kv[1]["cites"], reverse=True)[:limit]
+    id_filter = "|".join(aid.rsplit("/", 1)[-1] for aid, _ in top)
+    details: dict[str, dict] = {}
+    resp = await client.get(
+        "https://api.openalex.org/authors",
+        params={
+            "filter": f"openalex_id:{id_filter}",
+            "per-page": limit,
+            "mailto": "hello@outrovo.ai",
+        },
+        headers=_headers(),
+    )
+    if resp.status_code == 200:
+        for a in resp.json().get("results", []):
+            details[a["id"]] = a
+
+    out = []
+    for aid, rec in top:
+        d = details.get(aid, {})
+        insts = d.get("last_known_institutions") or []
+        inst_name = (insts[0].get("display_name", "") if insts else "") or rec["inst"]
+        country = insts[0].get("country_code", "") if insts else ""
+        orcid = d.get("orcid") or ""
+        platforms = {"openalex": aid}
+        if orcid:
+            platforms["orcid"] = orcid
+        works = d.get("works_count", rec["papers"])
+        cites = d.get("cited_by_count", rec["cites"])
+        out.append({
+            "id": f"openalex:{aid.rsplit('/', 1)[-1]}",
+            "name": d.get("display_name") or rec["name"],
+            "headline": f"Researcher{f' at {inst_name}' if inst_name else ''} — {works} works, {cites} citations",
+            "location": country,
+            "source": "openalex",
+            "profile_url": orcid or aid,
+            "avatar_url": "",
+            "platforms": platforms,
+            "stats": {"citations": cites, "works": works, "company": inst_name},
+        })
+    return out
+
+
 # Wikidata properties holding real social-media handles.
 WD_HANDLE_PROPS = {
     "P2003": ("instagram", "https://www.instagram.com/{}/"),
@@ -679,6 +959,23 @@ async def _wikidata_people_fulltext(
     return out
 
 
+_REGIONS = {
+    "europe", "asia", "africa", "oceania", "north america", "south america",
+    "latin america", "middle east", "southeast asia", "scandinavia", "emea",
+    "apac", "worldwide", "global", "international",
+}
+
+# Occupation labels too generic to identify anyone — querying Wikidata for
+# "professor" or "researcher" unfiltered just returns the most sitelinked
+# humans in history (Clinton, Confucius...). Specific labels only.
+_GENERIC_OCCUPATIONS = {
+    "researcher", "professor", "academic", "scientist", "expert", "founder",
+    "engineer", "developer", "author", "writer", "consultant", "entrepreneur",
+    "person", "professional", "specialist", "executive", "manager", "director",
+    "businessperson", "teacher", "lecturer", "scholar",
+}
+
+
 async def search_wikidata(
     client: httpx.AsyncClient,
     occupations: list[str],
@@ -686,11 +983,18 @@ async def search_wikidata(
     limit: int = 12,
 ) -> list[dict]:
     """Find real notable people (with verified social handles) via Wikidata SPARQL."""
+    specific = [o for o in occupations if o.strip().lower() not in _GENERIC_OCCUPATIONS]
+    if not specific and occupations:
+        specific = occupations[:1]  # all-generic request: keep one, rely on ranker
     occ_qids = list(dict.fromkeys(
-        qid for qid in await asyncio.gather(*(_resolve_qid(client, o) for o in occupations[:4])) if qid
+        qid for qid in await asyncio.gather(*(_resolve_qid(client, o) for o in specific[:4])) if qid
     ))
     if not occ_qids:
         return []
+    # Continents/regions are not countries — P27 citizenship filtering on them
+    # would silently return nothing.
+    if country and country.strip().lower() in _REGIONS:
+        country = ""
     country_qid = await _resolve_qid(client, country) if country else None
     demonym = await _country_demonym(client, country_qid) if country_qid else None
 
@@ -737,7 +1041,7 @@ LIMIT {per_occ * 3}
     sparql_task = asyncio.gather(*(run_query(q, f) for q, f in queries))
     # Indexed full-text search widens recall where occupation tagging is sparse.
     fulltext_task = _wikidata_people_fulltext(
-        client, demonym or "", occupations, country, limit=limit
+        client, demonym or "", specific or occupations, country, limit=limit
     ) if (demonym or country) else asyncio.sleep(0, result=[])
     batches, fulltext_results = await asyncio.gather(sparql_task, fulltext_task)
 
@@ -985,6 +1289,25 @@ async def _emails_from_mastodon(client: httpx.AsyncClient, profile_url: str) -> 
     ]
 
 
+async def _emails_from_bluesky(client: httpx.AsyncClient, profile_url: str) -> list[dict]:
+    """Bluesky bios often include a public contact email."""
+    handle = profile_url.rstrip("/").rsplit("/", 1)[-1]
+    if not handle:
+        return []
+    resp = await client.get(
+        f"{_BSKY_PUBLIC}/app.bsky.actor.getProfile",
+        params={"actor": handle},
+        headers=_headers(),
+    )
+    if resp.status_code != 200:
+        return []
+    text = resp.json().get("description") or ""
+    return [
+        {"address": a, "source": "Bluesky bio", "url": profile_url}
+        for a in _clean_emails(text)
+    ]
+
+
 async def _emails_from_producthunt(client: httpx.AsyncClient, username: str) -> list[dict]:
     """Product Hunt makers link a personal website — scan it for published emails."""
     token = await _producthunt_token(client)
@@ -1033,6 +1356,8 @@ async def discover_emails(candidate: dict) -> list[dict]:
             calls.append(_emails_from_wikidata(client, platforms["wikidata"].rsplit("/", 1)[-1]))
         if "mastodon" in platforms:
             calls.append(_emails_from_mastodon(client, platforms["mastodon"]))
+        if "bluesky" in platforms:
+            calls.append(_emails_from_bluesky(client, platforms["bluesky"]))
         if "producthunt" in platforms:
             calls.append(_emails_from_producthunt(client, platforms["producthunt"].split("@")[-1]))
         for key in ("website", "blog"):
@@ -1054,6 +1379,103 @@ async def discover_emails(candidate: dict) -> list[dict]:
     return unique
 
 
+_NOTABILITY_GATED = {"wikidata", "wikipedia", "index"}
+
+
+def _norm_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+def _norm_url(url: str) -> str:
+    u = (url or "").lower().strip()
+    u = re.sub(r"^https?://(www\.)?", "", u).rstrip("/").split("?")[0]
+    return u
+
+
+def merge_candidates(candidates: list[dict]) -> list[dict]:
+    """Unify records that represent the same real person across sources.
+
+    Two records merge when they share a platform profile URL (github/x/linkedin/
+    website/etc.), or when they share an exact normalized name AND both come from
+    notability-gated sources (wikidata/wikipedia/index) where a name match is
+    near-certain to be the same person. Open platforms (SO, HN, bluesky...) never
+    merge on name alone — common names would cause false merges.
+    """
+    parent = list(range(len(candidates)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[rj] = ri
+
+    by_link: dict[str, int] = {}
+    by_gated_name: dict[str, int] = {}
+    for i, c in enumerate(candidates):
+        for key, url in (c.get("platforms") or {}).items():
+            if key in ("wikidata", "wikipedia", "openalex"):
+                continue  # source-specific IDs; never shared across records
+            u = _norm_url(url)
+            if not u:
+                continue
+            if u in by_link:
+                union(i, by_link[u])
+            else:
+                by_link[u] = i
+        if set((c.get("source") or "").split("+")) & _NOTABILITY_GATED:
+            n = _norm_name(c.get("name", ""))
+            if len(n) >= 5:
+                if n in by_gated_name:
+                    union(i, by_gated_name[n])
+                else:
+                    by_gated_name[n] = i
+
+    groups: dict[int, list[dict]] = {}
+    for i in range(len(candidates)):
+        groups.setdefault(find(i), []).append(candidates[i])
+
+    merged: list[dict] = []
+    for group in groups.values():
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+        primary = max(
+            group,
+            key=lambda c: (
+                bool(c.get("avatar_url")),
+                (c.get("stats") or {}).get("followers") or 0,
+                len(c.get("headline") or ""),
+            ),
+        )
+        out = dict(primary)
+        platforms = dict(primary.get("platforms") or {})
+        stats = dict(primary.get("stats") or {})
+        srcs: list[str] = []
+        for c in group:
+            s = c.get("source", "")
+            if s and s not in srcs:
+                srcs.append(s)
+            for k, v in (c.get("platforms") or {}).items():
+                platforms.setdefault(k, v)
+            for k, v in (c.get("stats") or {}).items():
+                if k not in stats or stats[k] in ("", 0, None):
+                    stats[k] = v
+            for field in ("location", "headline", "bio", "profile_url"):
+                if not out.get(field) and c.get(field):
+                    out[field] = c[field]
+        out["platforms"] = platforms
+        out["stats"] = stats
+        out["sources"] = srcs
+        out["source"] = "+".join(srcs)
+        merged.append(out)
+    return merged
+
+
 async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
     sources = set(plan.get("sources", []))
     async with httpx.AsyncClient(timeout=config.HTTP_TIMEOUT) as client:
@@ -1068,6 +1490,17 @@ async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
             tasks["mastodon"] = search_mastodon(client, plan.get("hn_terms", []) or plan.get("occupations", []))
         if "devto" in sources:
             tasks["devto"] = search_devto(client, plan.get("occupations", []) or plan.get("hn_terms", []))
+        # Topic-like terms (field/technology), NOT person-type labels like
+        # "researcher" — searching OpenAlex/Bluesky for "researcher" returns noise.
+        topic_terms = list(dict.fromkeys(
+            (plan.get("role_keywords", []) or []) + (plan.get("hn_terms", []) or [])
+        ))
+        if "bluesky" in sources:
+            tasks["bluesky"] = search_bluesky(client, topic_terms or plan.get("occupations", []))
+        if "stackoverflow" in sources:
+            tasks["stackoverflow"] = search_stackoverflow(client, topic_terms)
+        if "openalex" in sources:
+            tasks["openalex"] = search_openalex(client, topic_terms)
         if "producthunt" in sources:
             tasks["producthunt"] = search_producthunt(
                 client,
@@ -1106,9 +1539,17 @@ async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
         )
 
     candidates: list[dict] = []
+    seen_ids: set[str] = set()
     for r in results:
         if isinstance(r, list):
-            candidates.extend(r)
+            for c in r:
+                if c.get("id") and c["id"] not in seen_ids:
+                    seen_ids.add(c["id"])
+                    candidates.append(c)
+
+    # Unify the same real person appearing in multiple live sources into one
+    # enriched profile (cross-platform links, combined stats).
+    candidates = merge_candidates(candidates)
 
     # Merge in real people found in past searches (our own growing index),
     # skipping anyone already returned by the live sources.
@@ -1125,5 +1566,6 @@ async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
             candidates.append(hit)
 
     # Persist everyone we found so the index keeps growing.
-    cache.store_people([c for c in candidates if c.get("source") != "index"])
-    return candidates
+    cache.store_people([c for c in candidates if "index" not in c.get("source", "")])
+    # Index hits can duplicate a person just found live — unify once more.
+    return merge_candidates(candidates)

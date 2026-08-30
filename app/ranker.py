@@ -13,8 +13,8 @@ Return ONLY a JSON array, one object per candidate id you were given:
   {{
     "id": "<candidate id>",
     "fit_score": <integer 0-100>,
-    "fit_reason": "1-2 sentence honest assessment of why this person does or does not match",
-    "highlights": ["up to 3 concrete evidence points from the profile data"],
+    "fit_reason": "1 sentence honest assessment of why this person does or does not match",
+    "highlights": ["up to 2 concrete evidence points from the profile data"],
     "role": "their job title or role, e.g. 'Founding Partner', 'Software Engineer', 'Beauty Creator' — empty string if unknown",
     "company": "the company/organization they work at or founded — empty string if unknown",
     "country_code": "ISO 3166-1 alpha-2 code of their country (e.g. 'US', 'DE') — empty string if unknown"
@@ -45,15 +45,44 @@ def _format_candidates(candidates: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _prescore(c: dict) -> float:
+    """Cheap relevance proxy used to pick which candidates reach the LLM review
+    batch: real engagement/authority signals, profile richness, and whether the
+    person was confirmed by multiple independent sources."""
+    stats = c.get("stats") or {}
+    score = 0.0
+    for key, cap in (
+        ("followers", 100_000), ("social_followers", 100_000),
+        ("sitelinks", 200), ("citations", 100_000),
+        ("karma", 50_000), ("reputation", 500_000), ("tag_score", 5_000),
+    ):
+        try:
+            v = float(stats.get(key) or 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        score += min(v / cap, 1.0)
+    if c.get("avatar_url"):
+        score += 0.3
+    if c.get("bio"):
+        score += 0.2
+    srcs = c.get("sources") or [c.get("source")]
+    score += 0.25 * (len([s for s in srcs if s]) - 1)
+    return score
+
+
 async def rank_candidates(query: str, candidates: list[dict]) -> list[dict]:
     if not candidates:
         return []
     # Cap the batch so the prompt stays within context limits. Keep every
     # index hit (people recalled from past searches) in the reviewed batch —
     # they were already proven relevant once, so don't let live sources crowd
-    # them out of the 24-slot prompt.
+    # them out of the 24-slot prompt. Live candidates compete by pre-score.
     indexed = [c for c in candidates if c.get("source") == "index"]
-    live = [c for c in candidates if c.get("source") != "index"]
+    live = sorted(
+        (c for c in candidates if c.get("source") != "index"),
+        key=_prescore,
+        reverse=True,
+    )
     batch = (indexed + live)[:24]
     text = await llm.chat(
         [{"role": "user", "content": RANK_PROMPT.format(query=query, candidates=_format_candidates(batch))}],

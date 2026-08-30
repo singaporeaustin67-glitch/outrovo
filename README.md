@@ -9,11 +9,17 @@ outreach draft. No seed data, no static lists.
 
 ```
 query ──▶ planner (LLM)      ──▶ structured search plan (sources, occupations, location)
-      ──▶ connectors         ──▶ real candidates from live sources:
+      ──▶ connectors         ──▶ real candidates from live sources (all keyless unless noted):
                                   · Wikidata SPARQL — notable people + verified IG/X/YouTube/TikTok handles
-                                  · Wikipedia API — notable people with bios
+                                  · Wikipedia API — notable people via full-text + category membership
                                   · GitHub API — developers (location, followers, repos)
+                                  · Bluesky public API — founders/journalists/creators + follower counts
+                                  · Stack Overflow API — all-time top answerers per technology
+                                  · OpenAlex API — researchers by field with citations + affiliations
                                   · Hacker News (Algolia + official API) — tech founders/builders
+                                  · Mastodon / DEV.to / Product Hunt (keyed) / OpenCorporates (keyed)
+                                  · Tavily web search (keyed) — local businesses, niche professionals
+      ──▶ identity merge     ──▶ same person across sources unified into one enriched profile
       ──▶ ranker (LLM)       ──▶ fit score 0–100 + honest review + evidence highlights
       ──▶ outreach (LLM)     ──▶ personalized first-contact message on demand
 ```
