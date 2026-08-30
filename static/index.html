@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Outrovo — AI People Search Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #0b0f0d;
+  --ink-2: #101614;
+  --ink-3: #161e1a;
+  --line: #243029;
+  --signal: #d8ff3d;
+  --signal-dim: #9dc72e;
+  --amber: #ffb000;
+  --text: #e8efe9;
+  --muted: #7d8a80;
+  --faint: #4a564e;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--ink);
+  color: var(--text);
+  font-family: 'Syne', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 70% -10%, rgba(216,255,61,0.07), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 10% 110%, rgba(255,176,0,0.05), transparent 60%);
+  pointer-events: none; z-index: 0;
+}
+.grid-lines {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(216,255,61,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(216,255,61,0.025) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 20%, black 30%, transparent 75%);
+}
+.wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+
+/* ── nav ─────────────────────────── */
+nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 26px 0; border-bottom: 1px solid var(--line);
+}
+.logo { display: flex; align-items: center; gap: 12px; font-weight: 800; font-size: 21px; letter-spacing: -0.5px; }
+.logo-mark {
+  width: 30px; height: 30px; border: 2px solid var(--signal); border-radius: 50%;
+  position: relative; display: grid; place-items: center;
+}
+.logo-mark::after { content: ""; width: 8px; height: 8px; background: var(--signal); border-radius: 50%; }
+.logo-mark::before {
+  content: ""; position: absolute; inset: -2px; border-radius: 50%;
+  border: 2px solid var(--signal); opacity: 0.4;
+  animation: ping 2.4s ease-out infinite;
+}
+@keyframes ping { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(2.1); opacity: 0; } }
+.nav-meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; display: flex; gap: 22px; align-items: center; }
+.live-dot { display: inline-flex; align-items: center; gap: 7px; }
+.live-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--signal); box-shadow: 0 0 8px var(--signal); animation: blink 1.6s infinite; }
+@keyframes blink { 50% { opacity: 0.35; } }
+
+/* ── hero ─────────────────────────── */
+.hero { padding: 84px 0 40px; }
+.hero-eyebrow {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--signal);
+  letter-spacing: 0.28em; text-transform: uppercase; margin-bottom: 26px;
+  display: flex; align-items: center; gap: 14px;
+  animation: rise 0.7s cubic-bezier(.2,.8,.2,1) both;
+}
+.hero-eyebrow::before { content: ""; width: 42px; height: 1px; background: var(--signal); }
+h1 {
+  font-size: clamp(46px, 7.4vw, 96px); font-weight: 800; line-height: 0.98;
+  letter-spacing: -0.03em; max-width: 14ch;
+  animation: rise 0.7s 0.08s cubic-bezier(.2,.8,.2,1) both;
+}
+h1 em { font-family: 'Instrument Serif', serif; font-style: italic; font-weight: 400; color: var(--signal); letter-spacing: -0.01em; }
+.hero-sub {
+  margin-top: 26px; max-width: 56ch; color: var(--muted); font-size: 16.5px; line-height: 1.65;
+  animation: rise 0.7s 0.16s cubic-bezier(.2,.8,.2,1) both;
+}
+.hero-sub b { color: var(--text); font-weight: 600; }
+@keyframes rise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
+
+/* ── search console ───────────────── */
+.console {
+  margin-top: 46px; border: 1px solid var(--line); background: linear-gradient(180deg, var(--ink-2), var(--ink));
+  border-radius: 18px; padding: 10px; position: relative;
+  animation: rise 0.7s 0.24s cubic-bezier(.2,.8,.2,1) both;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.console:focus-within { border-color: var(--signal-dim); box-shadow: 0 0 0 1px var(--signal-dim), 0 24px 70px -30px rgba(216,255,61,0.25); }
+.console-inner { display: flex; gap: 10px; align-items: stretch; }
+.console-prompt {
+  font-family: 'JetBrains Mono', monospace; color: var(--signal); font-size: 18px;
+  display: grid; place-items: center; padding: 0 6px 0 14px; user-select: none;
+}
+#query {
+  flex: 1; background: transparent; border: none; outline: none; color: var(--text);
+  font-family: 'JetBrains Mono', monospace; font-size: 15.5px; padding: 20px 6px;
+}
+#query::placeholder { color: var(--faint); }
+#searchBtn {
+  background: var(--signal); color: var(--ink); border: none; border-radius: 12px;
+  font-family: 'Syne', sans-serif; font-weight: 700; font-size: 15px;
+  padding: 0 30px; cursor: pointer; letter-spacing: 0.01em;
+  transition: transform 0.15s, background 0.2s;
+}
+#searchBtn:hover { background: #e6ff70; transform: translateY(-1px); }
+#searchBtn:disabled { background: var(--ink-3); color: var(--muted); cursor: wait; }
+.chips { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; animation: rise 0.7s 0.32s cubic-bezier(.2,.8,.2,1) both; }
+.chip {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 999px; padding: 8px 15px; cursor: pointer;
+  background: transparent; transition: all 0.2s;
+}
+.chip:hover { color: var(--signal); border-color: var(--signal-dim); transform: translateY(-1px); }
+
+/* ── agent trace ─────────────────── */
+#trace { margin-top: 30px; display: none; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+#trace.on { display: block; }
+.trace-line { display: flex; gap: 12px; align-items: baseline; padding: 7px 0; color: var(--muted); border-bottom: 1px dashed var(--line); animation: rise 0.4s both; }
+.trace-line .t-tag { color: var(--signal); min-width: 86px; text-transform: uppercase; letter-spacing: 0.1em; font-size: 10.5px; }
+.trace-line .t-val { color: var(--text); }
+.scan { display: inline-block; width: 9px; height: 15px; background: var(--signal); vertical-align: -2px; animation: scanblink 0.8s steps(2) infinite; }
+@keyframes scanblink { 50% { opacity: 0; } }
+
+/* ── results ─────────────────────── */
+#results { padding: 56px 0 90px; display: none; }
+#results.on { display: block; }
+.results-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 30px; }
+.results-head h2 { font-size: clamp(26px, 3.4vw, 40px); font-weight: 800; letter-spacing: -0.02em; }
+.results-head h2 em { font-family: 'Instrument Serif', serif; font-style: italic; font-weight: 400; color: var(--signal); }
+.results-meta { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted); letter-spacing: 0.08em; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; }
+.card {
+  border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(180deg, var(--ink-2), var(--ink));
+  padding: 22px; position: relative; overflow: hidden;
+  animation: rise 0.55s cubic-bezier(.2,.8,.2,1) both;
+  transition: border-color 0.25s, transform 0.25s;
+}
+.card:hover { border-color: var(--signal-dim); transform: translateY(-3px); }
+.card-top { display: flex; gap: 15px; align-items: flex-start; }
+.avatar {
+  width: 52px; height: 52px; border-radius: 14px; flex-shrink: 0;
+  background: var(--ink-3); border: 1px solid var(--line);
+  display: grid; place-items: center; overflow: hidden;
+  font-weight: 800; font-size: 19px; color: var(--signal);
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.card-id { flex: 1; min-width: 0; }
+.card-name { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-src { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.14em; margin-top: 4px; }
+.card-src b { color: var(--amber); font-weight: 500; }
+.dial { position: relative; width: 58px; height: 58px; flex-shrink: 0; }
+.dial svg { transform: rotate(-90deg); }
+.dial .dial-val {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700;
+}
+.card-head { color: var(--muted); font-size: 13.5px; line-height: 1.55; margin-top: 14px; min-height: 42px; }
+.card-loc { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--faint); margin-top: 8px; }
+.fit {
+  margin-top: 15px; padding: 13px 15px; border-left: 2px solid var(--signal);
+  background: rgba(216,255,61,0.045); border-radius: 0 10px 10px 0;
+  font-family: 'Instrument Serif', serif; font-style: italic; font-size: 15px; line-height: 1.5; color: #cfe0c8;
+}
+.highlights { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.highlights li {
+  list-style: none; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted);
+  padding-left: 18px; position: relative; line-height: 1.5;
+}
+.highlights li::before { content: "▸"; position: absolute; left: 0; color: var(--signal); }
+.platforms { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 16px; }
+.platforms a {
+  font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text); text-decoration: none; border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px;
+  transition: all 0.18s;
+}
+.platforms a:hover { border-color: var(--signal); color: var(--signal); }
+.outreach-btn {
+  margin-top: 16px; width: 100%; background: transparent; border: 1px dashed var(--signal-dim);
+  color: var(--signal); border-radius: 10px; padding: 11px; font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; transition: all 0.2s;
+}
+.outreach-btn:hover { background: rgba(216,255,61,0.08); }
+.outreach-btn:disabled { opacity: 0.5; cursor: wait; }
+.outreach-text {
+  margin-top: 12px; display: none; white-space: pre-wrap; font-size: 13.5px; line-height: 1.65;
+  color: var(--text); background: var(--ink-3); border: 1px solid var(--line); border-radius: 10px; padding: 15px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.outreach-text.on { display: block; animation: rise 0.4s both; }
+.empty {
+  text-align: center; padding: 70px 20px; color: var(--muted);
+  font-family: 'Instrument Serif', serif; font-style: italic; font-size: 20px;
+}
+.err {
+  margin-top: 24px; border: 1px solid #5c2e2e; background: rgba(255,80,80,0.06); color: #ff9d9d;
+  border-radius: 12px; padding: 16px 20px; font-family: 'JetBrains Mono', monospace; font-size: 13px; display: none;
+}
+footer { border-top: 1px solid var(--line); padding: 30px 0 44px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--faint); letter-spacing: 0.1em; text-transform: uppercase; }
+@media (max-width: 640px) {
+  .console-inner { flex-direction: column; }
+  #searchBtn { padding: 15px; }
+  .nav-meta span:last-child { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="grid-lines"></div>
+<div class="wrap">
+
+  <nav>
+    <div class="logo"><div class="logo-mark"></div>outrovo</div>
+    <div class="nav-meta">
+      <span class="live-dot">live data</span>
+      <span id="modelBadge">…</span>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-eyebrow">AI People Search Agent</div>
+    <h1>Say who you need.<br>We <em>find them.</em></h1>
+    <p class="hero-sub">
+      Outrovo understands your request in plain language, searches <b>live public sources</b> —
+      Wikidata, Wikipedia, GitHub, Hacker News — reviews every profile with AI, and returns
+      the <b>best-matching real people</b> with verified profiles. No seed data. No static lists.
+    </p>
+
+    <div class="console">
+      <div class="console-inner">
+        <span class="console-prompt">›</span>
+        <input id="query" placeholder="Find US beauty influencers on Instagram who focus on skincare…" autocomplete="off" />
+        <button id="searchBtn">Search</button>
+      </div>
+    </div>
+
+    <div class="chips">
+      <button class="chip">US beauty influencers on Instagram &amp; TikTok, skincare niche</button>
+      <button class="chip">Machine learning engineers in Berlin with open-source presence</button>
+      <button class="chip">Venture capitalists who invest in climate tech</button>
+      <button class="chip">YouTubers covering personal finance</button>
+      <button class="chip">Rust developers in Europe</button>
+    </div>
+
+    <div id="trace"></div>
+    <div class="err" id="err"></div>
+  </section>
+
+  <section id="results">
+    <div class="results-head">
+      <h2 id="resultsTitle">Best <em>matches</em></h2>
+      <div class="results-meta" id="resultsMeta"></div>
+    </div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <footer>
+    <span>outrovo © 2026</span>
+    <span>real people · real profiles · ai-reviewed</span>
+  </footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let lastQuery = "";
+
+fetch("/api/health").then(r => r.json()).then(h => {
+  $("modelBadge").textContent = "llm: " + h.model;
+}).catch(() => { $("modelBadge").textContent = "api offline"; });
+
+document.querySelectorAll(".chip").forEach(c => {
+  c.addEventListener("click", () => { $("query").value = c.textContent; runSearch(); });
+});
+$("searchBtn").addEventListener("click", runSearch);
+$("query").addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+
+function traceLine(tag, val, scan) {
+  const div = document.createElement("div");
+  div.className = "trace-line";
+  div.innerHTML = `<span class="t-tag">${tag}</span><span class="t-val"></span>`;
+  div.querySelector(".t-val").textContent = val;
+  if (scan) { const s = document.createElement("span"); s.className = "scan"; div.appendChild(s); }
+  $("trace").appendChild(div);
+  return div;
+}
+
+function dialColor(score) {
+  if (score >= 70) return "#d8ff3d";
+  if (score >= 40) return "#ffb000";
+  return "#4a564e";
+}
+
+function card(c, i) {
+  const score = c.fit_score || 0;
+  const r = 24, circ = 2 * Math.PI * r;
+  const arc = circ * Math.min(score, 100) / 100;
+  const initials = c.name.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
+  const platforms = Object.entries(c.platforms || {})
+    .map(([k, u]) => `<a href="${u}" target="_blank" rel="noopener">${k}</a>`).join("");
+  const highlights = (c.highlights || []).map(h => `<li></li>`).join("");
+  const el = document.createElement("div");
+  el.className = "card";
+  el.style.animationDelay = (i * 0.07) + "s";
+  el.innerHTML = `
+    <div class="card-top">
+      <div class="avatar">${c.avatar_url ? `<img src="${c.avatar_url}" loading="lazy" onerror="this.remove()">` : initials}</div>
+      <div class="card-id">
+        <div class="card-name"></div>
+        <div class="card-src">via <b></b></div>
+      </div>
+      <div class="dial">
+        <svg width="58" height="58">
+          <circle cx="29" cy="29" r="${r}" fill="none" stroke="#243029" stroke-width="4"/>
+          <circle cx="29" cy="29" r="${r}" fill="none" stroke="${dialColor(score)}" stroke-width="4"
+            stroke-dasharray="${arc} ${circ}" stroke-linecap="round"/>
+        </svg>
+        <div class="dial-val" style="color:${dialColor(score)}">${score}</div>
+      </div>
+    </div>
+    <div class="card-head"></div>
+    ${c.location ? `<div class="card-loc">◈ <span></span></div>` : ""}
+    ${c.fit_reason ? `<div class="fit"></div>` : ""}
+    ${highlights ? `<ul class="highlights">${highlights}</ul>` : ""}
+    <div class="platforms">${platforms}</div>
+    <button class="outreach-btn">✦ draft outreach</button>
+    <div class="outreach-text"></div>`;
+  el.querySelector(".card-name").textContent = c.name;
+  el.querySelector(".card-src b").textContent = c.source;
+  el.querySelector(".card-head").textContent = c.headline || "—";
+  if (c.location) el.querySelector(".card-loc span").textContent = c.location;
+  if (c.fit_reason) el.querySelector(".fit").textContent = c.fit_reason;
+  el.querySelectorAll(".highlights li").forEach((li, j) => li.textContent = c.highlights[j]);
+
+  const btn = el.querySelector(".outreach-btn");
+  const box = el.querySelector(".outreach-text");
+  btn.addEventListener("click", async () => {
+    btn.disabled = true; btn.textContent = "✦ drafting…";
+    try {
+      const r = await fetch("/api/outreach", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: lastQuery, candidate: c })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || "failed");
+      box.textContent = d.message;
+      box.classList.add("on");
+      btn.textContent = "✦ regenerate";
+    } catch (e) {
+      btn.textContent = "✦ failed — retry";
+    } finally { btn.disabled = false; }
+  });
+  return el;
+}
+
+async function runSearch() {
+  const q = $("query").value.trim();
+  if (q.length < 3) return;
+  lastQuery = q;
+  $("searchBtn").disabled = true;
+  $("err").style.display = "none";
+  $("results").classList.remove("on");
+  $("trace").innerHTML = "";
+  $("trace").classList.add("on");
+  const scanning = traceLine("agent", "planning search across live sources…", true);
+
+  try {
+    const r = await fetch("/api/search", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "search failed");
+    scanning.querySelector(".t-val").textContent = d.plan.intent_summary || q;
+    scanning.querySelector(".scan")?.remove();
+    traceLine("sources", (d.plan.sources || []).join(" · "));
+    if (d.plan.occupations?.length) traceLine("occupations", d.plan.occupations.join(", "));
+    if (d.plan.country) traceLine("country", d.plan.country);
+    if (d.plan.github_query) traceLine("github", d.plan.github_query);
+    traceLine("scanned", d.total_candidates + " real profiles → ai-reviewed in " + d.elapsed_seconds + "s");
+
+    $("results").classList.add("on");
+    $("resultsMeta").textContent =
+      `${d.results.length} matches · ${d.total_candidates} scanned · ${d.elapsed_seconds}s`;
+    $("cards").innerHTML = "";
+    if (!d.results.length) {
+      $("cards").innerHTML = `<div class="empty">No matching people found in live sources — try rephrasing your request.</div>`;
+    } else {
+      d.results.forEach((c, i) => $("cards").appendChild(card(c, i)));
+    }
+    $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) {
+    scanning.querySelector(".scan")?.remove();
+    $("err").textContent = "⚠ " + e.message;
+    $("err").style.display = "block";
+  } finally {
+    $("searchBtn").disabled = false;
+  }
+}
+</script>
+</body>
+</html>
