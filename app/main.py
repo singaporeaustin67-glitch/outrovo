@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, connectors, planner, ranker
+from . import cache, config, connectors, planner, ranker
 
 app = FastAPI(title="Outrovo — AI People Search")
 
@@ -40,6 +40,10 @@ async def health():
 @app.post("/api/search")
 async def search(req: SearchRequest):
     started = time.time()
+    cached = cache.get(req.query)
+    if cached is not None:
+        return {**cached, "cached": True, "elapsed_seconds": round(time.time() - started, 1)}
+
     plan = await planner.build_plan(req.query)
     candidates = await connectors.gather_candidates(plan)
 
@@ -61,13 +65,16 @@ async def search(req: SearchRequest):
             for c in candidates
         ]
 
-    return {
+    result = {
         "query": req.query,
         "plan": plan,
         "total_candidates": len(candidates),
         "results": ranked,
         "elapsed_seconds": round(time.time() - started, 1),
     }
+    if ranked:
+        cache.put(req.query, result)
+    return result
 
 
 @app.post("/api/outreach")
