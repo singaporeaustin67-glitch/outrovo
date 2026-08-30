@@ -703,7 +703,7 @@ function personRows(c, i) {
     <td><button class="check-btn">✉ Check</button></td>
     <td class="cell-country"></td>
     <td class="num-cell">${fmtK(followersOf(c))}</td>
-    <td class="num-cell">—</td>`;
+    <td class="num-cell">${fmtK((c.stats || {}).avg_views)}</td>`;
   tr.querySelector(".cell-name").textContent = c.name;
   tr.querySelector(".cell-sub").textContent = "via " + c.source;
   tr.querySelector(".company-name").textContent = c.company || "—";

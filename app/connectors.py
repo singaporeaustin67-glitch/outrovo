@@ -659,6 +659,51 @@ async def enrich_company_logos(candidates: list[dict]) -> None:
         c["company_logo"] = logo_map.get(c.get("company", "").strip(), "")
 
 
+_YT_CHANNEL_RE = re.compile(r"/channel/(UC[\w-]+)")
+
+
+async def enrich_follower_counts(candidates: list[dict], max_fetch: int = 6) -> None:
+    """Fill follower counts + avg views from the free public socialcounts API
+    (live YouTube metrics). Only runs for channels whose ID we truly know."""
+    targets = []
+    for c in candidates:
+        s = c.get("stats", {})
+        if s.get("social_followers") is not None or s.get("followers") is not None:
+            continue
+        m = _YT_CHANNEL_RE.search(c.get("platforms", {}).get("youtube", ""))
+        if m:
+            targets.append((c, m.group(1)))
+    if not targets:
+        return
+
+    async def fetch(client: httpx.AsyncClient, channel_id: str) -> tuple[int | None, int | None]:
+        try:
+            resp = await client.get(
+                f"https://api.socialcounts.org/youtube-live-subscriber-count/{channel_id}",
+                headers=_headers(),
+            )
+            if resp.status_code != 200:
+                return None, None
+            e = resp.json().get("counters", {}).get("estimation", {})
+            subs = e.get("subscriberCount")
+            views, videos = e.get("viewCount"), e.get("videoCount")
+            avg = round(views / videos) if views and videos else None
+            return subs, avg
+        except (httpx.HTTPError, ValueError):
+            return None, None
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        results = await asyncio.gather(
+            *(fetch(client, cid) for _, cid in targets[:max_fetch])
+        )
+    for (c, _), (subs, avg) in zip(targets[:max_fetch], results):
+        s = c.setdefault("stats", {})
+        if subs:
+            s["social_followers"] = subs
+        if avg:
+            s["avg_views"] = avg
+
+
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _EMAIL_BLOCKLIST = (
     "noreply", "no-reply", "example.com", "example.org", "sentry", "localhost",
