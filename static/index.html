@@ -194,16 +194,30 @@ section { padding: 84px 0; }
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   overflow-x: auto; box-shadow: var(--shadow);
 }
-table.results { width: 100%; border-collapse: collapse; min-width: 900px; }
-table.results th {
+table.results { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 900px; }
+table.results thead th {
+  position: sticky; top: 0; z-index: 2;
   text-align: left; font-family: 'JetBrains Mono'; font-size: 10.5px; font-weight: 600;
   text-transform: uppercase; letter-spacing: .12em; color: var(--muted);
   padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--bg);
+  cursor: pointer; user-select: none;
 }
 table.results td { padding: 14px 18px; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: 14.5px; }
 table.results tbody tr.person-row { cursor: pointer; transition: background .15s; animation: rise .4s both; }
 table.results tbody tr.person-row:hover { background: #fbfdf9; }
 table.results tbody tr.person-row:last-of-type td { border-bottom: none; }
+
+/* Frozen Profile column on horizontal scroll (Apollo-style) */
+table.results th:first-child, table.results td:first-child {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--surface);
+  min-width: 220px;
+  box-shadow: 6px 0 8px -6px rgba(20, 33, 27, .08);
+}
+table.results thead th:first-child { z-index: 3; background: var(--bg); }
+table.results td:first-child { background: var(--surface); }
+table.results tbody tr.person-row:hover td:first-child { background: #fbfdf9; }
+table.results tbody tr.detail-row td:first-child { background: #fbfdf9; }
 .cell-person { display: flex; align-items: center; gap: 13px; min-width: 200px; }
 .avatar {
   width: 42px; height: 42px; border-radius: 50%; background: var(--brand-soft); color: var(--brand-deep);
@@ -485,15 +499,15 @@ footer { padding: 56px 0 40px; }
       <table class="results">
         <thead>
           <tr>
-            <th>Profile</th>
-            <th>Match</th>
+            <th data-sort="name">Profile</th>
+            <th data-sort="fit_score">Match</th>
             <th>Link</th>
-            <th>Company</th>
-            <th>Title</th>
+            <th data-sort="company">Company</th>
+            <th data-sort="role">Title</th>
             <th>Email</th>
-            <th>Country</th>
-            <th>Followers</th>
-            <th>Avg. Views</th>
+            <th data-sort="country_code">Country</th>
+            <th data-sort="followers">Followers</th>
+            <th data-sort="avg_views">Avg. Views</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -805,19 +819,63 @@ function renderResults(d) {
   if (!d.results.length) {
     $("empty").textContent = "No matching people found in live sources — try rephrasing your request.";
     $("empty").style.display = "block";
+    $("tableWrap").style.display = "none";
   } else {
-    $("tableWrap").style.display = "block";
-    const shown = d.results.filter(c => (c.fit_score || 0) > 0);
-    (shown.length ? shown : d.results).forEach((c, i) => {
-      const [tr, detail] = personRows(c, i);
-      $("rows").appendChild(tr);
-      $("rows").appendChild(detail);
-    });
-    if (shown.length < d.results.length) {
-      $("resultsMeta").textContent += ` · ${d.results.length - shown.length} irrelevant hidden`;
+    renderTable();
+    if (lastResults.results.length > lastResults.results.filter(c => (c.fit_score || 0) > 0).length) {
+      $("resultsMeta").textContent += ` · ${lastResults.results.length - lastResults.results.filter(c => (c.fit_score || 0) > 0).length} irrelevant hidden`;
     }
   }
 }
+
+/* ---- sortable grid state ---- */
+let sortState = { key: "fit_score", dir: -1 };
+
+const SORT_GETTERS = {
+  name: c => (c.name || "").toLowerCase(),
+  fit_score: c => c.fit_score || 0,
+  company: c => (c.company || "").toLowerCase(),
+  role: c => (c.role || "").toLowerCase(),
+  country_code: c => (c.country_code || "").toLowerCase(),
+  followers: c => (c.stats || {}).social_followers || (c.stats || {}).followers || 0,
+  avg_views: c => (c.stats || {}).avg_views || 0,
+};
+
+function renderTable() {
+  const d = lastResults;
+  $("rows").innerHTML = "";
+  $("tableWrap").style.display = "block";
+  let shown = d.results.filter(c => (c.fit_score || 0) > 0);
+  if (!shown.length) shown = d.results.slice();
+  if (sortState.key !== "fit_score") {
+    const get = SORT_GETTERS[sortState.key];
+    shown = shown.slice().sort((a, b) => {
+      const va = get(a), vb = get(b);
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * sortState.dir;
+      return String(va).localeCompare(String(vb)) * sortState.dir;
+    });
+  }
+  shown.forEach((c, i) => {
+    const [tr, detail] = personRows(c, i);
+    $("rows").appendChild(tr);
+    $("rows").appendChild(detail);
+  });
+  document.querySelectorAll("table.results thead th[data-sort]").forEach(th => {
+    const key = th.dataset.sort;
+    const arrow = sortState.key === key ? (sortState.dir === -1 ? " ▼" : " ▲") : "";
+    th.textContent = th.textContent.replace(/ [▼▲]$/, "") + arrow;
+    th.style.color = sortState.key === key ? "var(--brand)" : "";
+  });
+}
+
+document.querySelectorAll("table.results thead th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (sortState.key === key) sortState.dir *= -1;
+    else sortState = { key, dir: key === "name" || key === "company" || key === "role" || key === "country_code" ? 1 : -1 };
+    renderTable();
+  });
+});
 
 function runSearch() {
   const q = $("query").value.trim();
