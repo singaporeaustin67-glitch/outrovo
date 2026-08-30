@@ -324,6 +324,105 @@ async def search_hackernews(client: httpx.AsyncClient, terms: list[str], limit: 
     return [u for u in users if u]
 
 
+async def search_mastodon(client: httpx.AsyncClient, terms: list[str], limit: int = 6) -> list[dict]:
+    """Mastodon's public account search — real people, real follower counts, no key."""
+    seen: dict[str, dict] = {}
+    for term in terms[:3]:
+        resp = await client.get(
+            "https://mastodon.social/api/v2/search",
+            params={"q": term, "type": "accounts", "limit": 10, "resolve": "false"},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for acc in resp.json().get("accounts", []):
+            key = acc.get("id")
+            if not key or key in seen or acc.get("bot"):
+                continue
+            note = re.sub(r"<[^>]+>", "", acc.get("note") or "")
+            platforms = {}
+            for field in acc.get("fields", []):
+                val = re.sub(r"<[^>]+>", "", field.get("value") or "")
+                m = re.search(r"(https?://[^\s\"']+)", val)
+                if not m:
+                    continue
+                url = m.group(1)
+                if "github.com" in url:
+                    platforms["github"] = url
+                elif "x.com" in url or "twitter.com" in url:
+                    platforms["x"] = url
+                elif "linkedin.com" in url:
+                    platforms["linkedin"] = url
+                elif "youtube.com" in url:
+                    platforms["youtube"] = url
+            seen[key] = {
+                "id": f"mastodon:{acc.get('acct')}",
+                "name": acc.get("display_name") or acc.get("username", ""),
+                "headline": note[:200] or f"Mastodon user, {acc.get('followers_count', 0)} followers",
+                "location": "",
+                "source": "mastodon",
+                "profile_url": acc.get("url", ""),
+                "avatar_url": acc.get("avatar", ""),
+                "platforms": {"mastodon": acc.get("url", ""), **platforms},
+                "stats": {
+                    "followers": acc.get("followers_count", 0),
+                    "following": acc.get("following_count", 0),
+                    "posts": acc.get("statuses_count", 0),
+                },
+            }
+    ranked = sorted(seen.values(), key=lambda c: c["stats"]["followers"], reverse=True)
+    return ranked[:limit]
+
+
+async def search_devto(client: httpx.AsyncClient, terms: list[str], limit: int = 6) -> list[dict]:
+    """DEV.to authors writing about the topic — real devs with GitHub/X links."""
+    authors: dict[str, dict] = {}
+
+    async def fetch_tag(tag: str, label: str) -> None:
+        resp = await client.get(
+            "https://dev.to/api/articles",
+            params={"tag": tag, "per_page": 15, "top": 7},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            return
+        for art in resp.json():
+            u = art.get("user") or {}
+            username = u.get("username")
+            if not username or username in authors:
+                continue
+            platforms = {}
+            if u.get("github_username"):
+                platforms["github"] = f"https://github.com/{u['github_username']}"
+            if u.get("twitter_username"):
+                platforms["x"] = f"https://x.com/{u['twitter_username']}"
+            authors[username] = {
+                "id": f"devto:{username}",
+                "name": u.get("name") or username,
+                "headline": f"DEV.to author writing about {label}",
+                "location": "",
+                "source": "devto",
+                "profile_url": f"https://dev.to/{username}",
+                "avatar_url": u.get("profile_image_90", ""),
+                "platforms": {"devto": f"https://dev.to/{username}", **platforms},
+                "stats": {"reactions": art.get("public_reactions_count", 0)},
+            }
+
+    # Try each term as a tag; if a multi-word term yields nothing,
+    # fall back to its individual words (DEV.to tags are single words).
+    for term in terms[:3]:
+        tag = re.sub(r"[^a-z0-9]", "", term.lower().replace(" ", ""))
+        if tag:
+            before = len(authors)
+            await fetch_tag(tag, term)
+            if len(authors) == before:
+                for word in term.lower().split():
+                    wtag = re.sub(r"[^a-z0-9]", "", word)
+                    if len(wtag) > 2:
+                        await fetch_tag(wtag, term)
+    return list(authors.values())[:limit]
+
+
 # Wikidata properties holding real social-media handles.
 WD_HANDLE_PROPS = {
     "P2003": ("instagram", "https://www.instagram.com/{}/"),
@@ -835,6 +934,10 @@ async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
             tasks["wikipedia"] = search_wikipedia(client, plan.get("wiki_terms", []))
         if "hackernews" in sources:
             tasks["hackernews"] = search_hackernews(client, plan.get("hn_terms", []))
+        if "mastodon" in sources:
+            tasks["mastodon"] = search_mastodon(client, plan.get("hn_terms", []) or plan.get("occupations", []))
+        if "devto" in sources:
+            tasks["devto"] = search_devto(client, plan.get("occupations", []) or plan.get("hn_terms", []))
         if "opencorporates" in sources:
             terms = plan.get("role_keywords", []) or plan.get("wiki_terms", [])
             location = plan.get("location") or plan.get("country", "")

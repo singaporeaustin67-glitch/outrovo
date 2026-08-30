@@ -7,6 +7,8 @@ Available data sources:
 - github: real developers/engineers (great for technical roles, open-source people)
 - wikipedia: real notable people (founders, investors, researchers, authors, public figures)
 - hackernews: only real tech/builder community members (avoid for local or non-tech businesses)
+- mastodon: real people with public profiles + real follower counts (founders, developers, researchers, journalists)
+- devto: real software authors on DEV.to writing about a topic (only for developer/technical queries)
 - wikidata: real notable people with verified social-media handles (influencers, creators, athletes, musicians, politicians, founders, experts) — searchable by occupation and country
 - opencorporates: real company officers/founders from public business registries — the right source for local business owners/executives (e.g. 'construction company founders in Ohio')
 - websearch: real web-search for founders/professionals via live snippets + LLM extraction (best for local businesses, niche professionals, recent press)
@@ -17,7 +19,7 @@ Return ONLY a JSON object with this shape:
   "role_keywords": ["keyword1", "keyword2"],
   "location": "city/country/state or empty string",
   "platforms": ["instagram", "tiktok", "youtube", "x", "linkedin", "github"],
-  "sources": ["github", "wikipedia", "hackernews", "wikidata", "opencorporates", "websearch"],
+  "sources": ["github", "wikipedia", "hackernews", "mastodon", "devto", "wikidata", "opencorporates", "websearch"],
   "github_query": "GitHub USER-search string using only free-text keywords plus location:/language:/followers:>N qualifiers (N <= 100), e.g. 'machine learning location:berlin followers:>50', or empty string if github not useful",
   "wiki_terms": ["2-4 short Wikipedia search terms for kinds of people"],
   "hn_terms": ["1-3 short keyword terms for Hacker News story search"],
