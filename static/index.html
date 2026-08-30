@@ -216,6 +216,7 @@ table.results tbody tr.person-row:last-of-type td { border-bottom: none; }
 .match { display: inline-flex; align-items: center; gap: 8px; font-family: 'Bricolage Grotesque'; font-weight: 800; font-size: 16px; }
 .match .mdot { width: 9px; height: 9px; border-radius: 50%; }
 .match.hi { color: var(--brand-deep); } .match.hi .mdot { background: #22b573; box-shadow: 0 0 6px rgba(34,181,115,.5); }
+.num-cell { font-family: 'Bricolage Grotesque'; font-weight: 700; color: var(--ink); white-space: nowrap; }
 .match.mid { color: #b45309; } .match.mid .mdot { background: var(--amber); }
 .match.lo { color: var(--muted); } .match.lo .mdot { background: #c3ccc5; }
 .socials { display: flex; gap: 6px; }
@@ -491,6 +492,8 @@ footer { padding: 56px 0 40px; }
             <th>Title</th>
             <th>Email</th>
             <th>Country</th>
+            <th>Followers</th>
+            <th>Avg. Views</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -617,6 +620,19 @@ const SOCIAL_ICONS = {
 
 let lastResults = null;
 
+function fmtK(v) {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(n);
+}
+
+function followersOf(c) {
+  const s = c.stats || {};
+  return s.social_followers ?? s.followers ?? s.karma ?? null;
+}
+
 function renderHistory(items) {
   if (!items?.length) return;
   const div = document.createElement("div");
@@ -648,10 +664,10 @@ loadHistory();
 
 function exportCsv() {
   if (!lastResults?.results?.length) return;
-  const head = ["name","fit_score","role","company","headline","location","source","profile_url"];
+  const head = ["name","fit_score","role","company","headline","location","source","profile_url","followers"];
   const csv = [head.join(",")]
     .concat(lastResults.results.map(r => head.map(k =>
-      `"${String(r[k] ?? "").replace(/"/g, '""')}"`).join(",")))
+      `"${String(k === "followers" ? followersOf(r) ?? "" : (r[k] ?? "")).replace(/"/g, '""')}"`).join(",")))
     .join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv" }));
@@ -680,12 +696,14 @@ function personRows(c, i) {
       <div class="avatar">${c.avatar_url ? `<img src="${c.avatar_url}" loading="lazy" onerror="this.remove()">` : initials}</div>
       <div><div class="cell-name"></div><div class="cell-sub"></div></div>
     </div></td>
-    <td><span class="match ${scoreClass(score)}"><span class="mdot"></span>${score}%</span></td>
+    <td><span class="match ${scoreClass(score)}"><span class="mdot"></span>${score.toFixed(1)}%</span></td>
     <td><div class="socials">${socials}</div></td>
     <td><div class="cell-company">${c.company_logo ? `<img class="company-logo" src="${c.company_logo}" loading="lazy" onerror="this.remove()">` : ""}<span class="company-name"></span></div></td>
     <td class="cell-role"></td>
     <td><button class="check-btn">✉ Check</button></td>
-    <td class="cell-country"></td>`;
+    <td class="cell-country"></td>
+    <td class="num-cell">${fmtK(followersOf(c))}</td>
+    <td class="num-cell">—</td>`;
   tr.querySelector(".cell-name").textContent = c.name;
   tr.querySelector(".cell-sub").textContent = "via " + c.source;
   tr.querySelector(".company-name").textContent = c.company || "—";
@@ -698,7 +716,7 @@ function personRows(c, i) {
 
   const detail = document.createElement("tr");
   detail.className = "detail-row";
-  detail.innerHTML = `<td colspan="7"><div class="detail-box">
+  detail.innerHTML = `<td colspan="9"><div class="detail-box">
     ${c.fit_reason ? `<div class="fit"></div>` : ""}
     ${(c.highlights || []).length ? `<ul class="highlights">${c.highlights.map(() => "<li></li>").join("")}</ul>` : ""}
     <div class="email-box"><div class="eb-title">✉ Public email discovery</div><div class="email-list"></div></div>

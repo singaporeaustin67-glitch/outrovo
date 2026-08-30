@@ -521,11 +521,12 @@ async def search_wikidata(
     async def run_query(occ_qid: str, filt: str) -> list[dict]:
         occ_clause = f"?person wdt:P106 wd:{occ_qid} ." if occ_qid else ""
         sparql = f"""
-SELECT DISTINCT ?person ?personLabel ?desc ?img ?sitelinks {handle_vars} WHERE {{
+SELECT DISTINCT ?person ?personLabel ?desc ?img ?sitelinks ?followers {handle_vars} WHERE {{
   {occ_clause}
   ?person wikibase:sitelinks ?sitelinks .
   {filt}
 {handle_selects}
+  OPTIONAL {{ ?person wdt:P8687 ?followers . }}
   OPTIONAL {{ ?person wdt:P18 ?img . }}
   OPTIONAL {{ ?person schema:description ?desc . FILTER(LANG(?desc) = "en") }}
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
@@ -574,7 +575,11 @@ LIMIT {per_occ * 3}
                     "profile_url": f"https://www.wikidata.org/wiki/{qid}",
                     "avatar_url": b.get("img", {}).get("value", ""),
                     "platforms": {"wikidata": f"https://www.wikidata.org/wiki/{qid}"},
-                    "stats": {"occupation": desc, "sitelinks": b.get("sitelinks", {}).get("value", "0")},
+                    "stats": {
+                        "occupation": desc,
+                        "sitelinks": b.get("sitelinks", {}).get("value", "0"),
+                        "social_followers": b.get("followers", {}).get("value"),
+                    },
                 }
                 by_qid[qid] = entry
             for prop, (platform, tpl) in WD_HANDLE_PROPS.items():
