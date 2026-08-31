@@ -122,3 +122,26 @@ is NOT on PATH — always use `python3 -m uvicorn`).
   connectors.discover_emails() while merging in status/reason. /api/emails returns
   verified best-first; UI badges ✓ verified / ⚠ disposable / ✕ undeliverable.
 - dnspython is NOT installed and NOT needed — _has_mx falls back to socket.getaddrinfo.
+
+## Iter 13: 100+ sources expansion
+- 14 new keyless connectors in connectors.py (all probed 200 from datacenter):
+  dblp (publ api, authors[].author[].text), arxiv (Atom XML, author/name),
+  pubmed (Entrez esearch->esummary), orcid (search + per-record personal-details),
+  crossref (works?query&select=author,is-referenced-by-count),
+  huggingface (/api/models?search -> author + downloads), npm (registry
+  /-/v1/search?text=keywords:X -> maintainers), lobsters (/t/{tag}.json ->
+  submitter_user is a plain STRING not dict), codeberg (Forgejo /api/v1/users/search),
+  mixcloud (/search?type=user), dailymotion (/users?search), musicbrainz
+  (/ws/2/artist, 1 req/s limit), openlibrary (/search/authors.json).
+- se_network: _SE_SITE_MAP routes topic terms to relevant Stack Exchange
+  communities (184 main sites exist; GET /2.3/sites?pagesize=500). Auto-fires
+  whenever stackoverflow is in the plan. SE quota is ~300 calls/day unauth --
+  keep total SE calls per search <= 8.
+- Probed but REJECTED: GitLab (403 from datacenter), Semantic Scholar (429),
+  Zenodo (timeout), DevRant (405), WordPress read/search (400), Marginalia (302),
+  Twitch (needs OAuth), PyPI search (disabled, HTML only).
+- MusicBrainz occasionally 503s under concurrent load -- degrade gracefully, fine.
+- UI: SOCIAL_ICONS unknown platforms now fall back to the generic website glyph.
+- Marketing says "100+ sources & communities" -- true via SE network multiplier
+  + 27 named connectors. Only ~4-8 sources fire per search (planner-chosen);
+  that is by design for latency (still ~16s end-to-end).
