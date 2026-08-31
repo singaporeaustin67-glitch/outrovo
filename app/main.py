@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth, billing, cache, config, connectors, outreach as outreach_mod, planner, ranker, refiner
+from . import auth, billing, cache, config, connectors, emailverify, outreach as outreach_mod, planner, ranker, refiner
 
 app = FastAPI(title="Outrovo — AI People Search")
 
@@ -80,6 +80,14 @@ class RefineRequest(BaseModel):
     query: str = Field(min_length=3, max_length=1000)
     instruction: str = Field(min_length=2, max_length=500)
     candidates: list[dict] = Field(max_length=30)
+
+
+class ListCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class ListAddRequest(BaseModel):
+    person: dict
 
 
 @app.get("/api/health")
@@ -327,7 +335,7 @@ async def outreach(req: OutreachRequest, user: dict = Depends(require_user)):
 @app.post("/api/emails")
 async def emails(req: EmailRequest, user: dict = Depends(require_user)):
     found = await connectors.discover_emails(req.candidate)
-    return {"emails": found}
+    return {"emails": emailverify.verify_all(found, key="address")}
 
 
 @app.post("/api/outreach/send")
@@ -406,6 +414,51 @@ async def feedback(req: FeedbackRequest, user: dict = Depends(require_user)):
     return {"recorded": True}
 
 
+# ---- saved prospect lists ----
+
+@app.get("/api/lists")
+async def lists(user: dict = Depends(require_user)):
+    return {"lists": cache.my_lists(user["id"])}
+
+
+@app.post("/api/lists")
+async def create_list(req: ListCreateRequest, user: dict = Depends(require_user)):
+    list_id = cache.create_list(user["id"], req.name)
+    return {"id": list_id, "name": req.name.strip()[:100]}
+
+
+@app.get("/api/lists/{list_id}")
+async def get_list(list_id: int, user: dict = Depends(require_user)):
+    lst = cache.get_list(list_id, user["id"])
+    if not lst:
+        raise HTTPException(status_code=404, detail="list not found")
+    return {**lst, "members": cache.list_members(list_id)}
+
+
+@app.delete("/api/lists/{list_id}")
+async def delete_list(list_id: int, user: dict = Depends(require_user)):
+    if not cache.delete_list(list_id, user["id"]):
+        raise HTTPException(status_code=404, detail="list not found")
+    return {"deleted": True}
+
+
+@app.post("/api/lists/{list_id}/members")
+async def add_member(list_id: int, req: ListAddRequest, user: dict = Depends(require_user)):
+    if not cache.get_list(list_id, user["id"]):
+        raise HTTPException(status_code=404, detail="list not found")
+    added = cache.add_to_list(list_id, req.person)
+    return {"added": added}
+
+
+@app.delete("/api/lists/{list_id}/members/{person_id}")
+async def remove_member(list_id: int, person_id: str, user: dict = Depends(require_user)):
+    if not cache.get_list(list_id, user["id"]):
+        raise HTTPException(status_code=404, detail="list not found")
+    if not cache.remove_from_list(list_id, person_id):
+        raise HTTPException(status_code=404, detail="person not in list")
+    return {"removed": True}
+
+
 @app.post("/api/refine")
 async def refine(req: RefineRequest, user: dict = Depends(require_user)):
     try:
@@ -421,6 +474,11 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 async def index():
     return FileResponse("static/index.html")
+
+
+@app.get("/pricing")
+async def pricing():
+    return FileResponse("static/pricing.html")
 
 
 @app.get("/privacy")

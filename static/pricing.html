@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pricing — Outrovo</title>
+<style>
+:root {
+  --brand: #37b268; --brand-dark: #2a9554; --lime: #c9f24f;
+  --ink: #0f1a14; --muted: #66736c; --border: #e3e8e3; --bg: #fbfbf9;
+}
+* { margin: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+nav { padding: 18px 0; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.8); }
+.wrap { max-width: 1060px; margin: 0 auto; padding: 0 22px; }
+.nav-inner { display: flex; justify-content: space-between; align-items: center; }
+.logo { font-weight: 800; font-size: 19px; color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+.logo-mark { background: var(--brand); color: #fff; border-radius: 8px; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 20px; border-radius: 999px; font-weight: 600; font-size: 14px; text-decoration: none; cursor: pointer; border: 0; }
+.btn-primary { background: var(--ink); color: #fff; }
+.btn-accent { background: var(--brand); color: #fff; }
+.btn-outline { border: 1px solid var(--border); color: var(--ink); background: #fff; }
+header { text-align: center; padding: 64px 22px 40px; }
+h1 { font-size: clamp(32px, 5vw, 48px); font-weight: 800; }
+.sub { color: var(--muted); margin-top: 12px; font-size: 16px; }
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 22px; padding: 20px 22px 70px; max-width: 1060px; margin: 0 auto; }
+.plan { background: #fff; border: 1px solid var(--border); border-radius: 22px; padding: 30px; position: relative; }
+.plan.hot { border: 2px solid var(--brand); box-shadow: 0 18px 44px rgba(55,178,104,.14); }
+.plan .flag { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: var(--lime); color: var(--ink); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; padding: 4px 14px; border-radius: 999px; }
+.plan h2 { font-size: 19px; }
+.price { font-size: 42px; font-weight: 800; margin: 14px 0 2px; }
+.price small { font-size: 15px; font-weight: 500; color: var(--muted); }
+.per { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+.plan ul { list-style: none; padding: 0; margin: 0 0 24px; }
+.plan li { padding: 8px 0; font-size: 14px; display: flex; gap: 10px; align-items: flex-start; }
+.plan li::before { content: "✓"; color: var(--brand); font-weight: 800; flex-shrink: 0; }
+.plan .btn { width: 100%; justify-content: center; }
+.faq { max-width: 720px; margin: 0 auto; padding: 0 22px 80px; }
+.faq h2 { text-align: center; font-size: 26px; margin-bottom: 26px; }
+.faq details { background: #fff; border: 1px solid var(--border); border-radius: 13px; margin-bottom: 10px; padding: 0 18px; }
+.faq summary { padding: 15px 0; font-weight: 600; cursor: pointer; font-size: 15px; }
+.faq p { color: var(--muted); font-size: 14px; padding-bottom: 15px; line-height: 1.65; }
+footer { text-align: center; padding: 30px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); }
+footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><div class="wrap nav-inner">
+  <a class="logo" href="/"><span class="logo-mark">O</span>outrovo</a>
+  <a class="btn btn-primary" href="/">Start searching</a>
+</div></nav>
+
+<header>
+  <h1>Find anyone. <span style="color:var(--brand)">Reach them.</span></h1>
+  <p class="sub">Start free. Upgrade when you're ready to scale your outreach.</p>
+</header>
+
+<div class="plans">
+  <div class="plan">
+    <h2>Free</h2>
+    <div class="price">$0</div>
+    <div class="per">forever · no card required</div>
+    <ul>
+      <li>5 AI people searches per day</li>
+      <li>3 outreach emails per day</li>
+      <li>13 live public data sources</li>
+      <li>AI fit score on every match</li>
+      <li>Email open tracking</li>
+      <li>Saved prospect lists</li>
+    </ul>
+    <a class="btn btn-outline" href="/">Get started free</a>
+  </div>
+
+  <div class="plan hot">
+    <div class="flag">Most popular</div>
+    <h2>Pro</h2>
+    <div class="price">$29<small>/mo</small></div>
+    <div class="per">for serious prospecting</div>
+    <ul>
+      <li>100 searches per day</li>
+      <li>50 outreach emails per day</li>
+      <li>Everything in Free</li>
+      <li>Follow-up reminders & sequences</li>
+      <li>CSV export</li>
+      <li>Priority AI review</li>
+    </ul>
+    <a class="btn btn-accent" href="/">Upgrade to Pro</a>
+  </div>
+
+  <div class="plan">
+    <h2>Max</h2>
+    <div class="price">$79<small>/mo</small></div>
+    <div class="per">for teams & power users</div>
+    <ul>
+      <li>500 searches per day</li>
+      <li>200 outreach emails per day</li>
+      <li>Everything in Pro</li>
+      <li>API access (coming soon)</li>
+      <li>Shared team lists</li>
+      <li>Priority support</li>
+    </ul>
+    <a class="btn btn-outline" href="mailto:sales@outrovo.com">Contact us</a>
+  </div>
+</div>
+
+<div class="faq">
+  <h2>Questions</h2>
+  <details>
+    <summary>What counts as a search?</summary>
+    <p>One natural-language query that runs live across our data sources and returns AI-scored results. Re-opening a previous search from your history is free. Quotas reset every day at midnight UTC.</p>
+  </details>
+  <details>
+    <summary>Where does the data come from?</summary>
+    <p>Public sources only: Wikipedia, Wikidata, GitHub, Stack Overflow, Bluesky, OpenAlex, Hacker News, DEV.to, Mastodon, Product Hunt, YouTube and personal websites. We never scrape private or login-walled content.</p>
+  </details>
+  <details>
+    <summary>How does email outreach work?</summary>
+    <p>Outrovo finds publicly published email addresses, verifies the domain can receive mail, drafts a personalized message, and sends it through your connected email account. An invisible 1×1 pixel tells you when it's opened. Follow-ups are drafted for your review but never sent automatically.</p>
+  </details>
+  <details>
+    <summary>Can I cancel anytime?</summary>
+    <p>Yes. Cancel in one click and your plan stays active until the end of the billing period, then returns to Free. Your lists and history are preserved.</p>
+  </details>
+  <details>
+    <summary>Is my data private?</summary>
+    <p>Your searches, lists, and outreach are scoped to your account and never shared with other users. See our <a href="/privacy">Privacy Policy</a> for the full picture, including how people found in searches can request removal.</p>
+  </details>
+</div>
+
+<footer>
+  © 2026 Outrovo · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a>
+</footer>
+</body>
+</html>

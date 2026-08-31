@@ -311,6 +311,13 @@ tr.detail-row.open td .detail-box { display: block; animation: rise .3s both; }
 }
 .outreach-btn:hover { background: var(--brand-soft); }
 .outreach-btn:disabled { opacity: .55; cursor: wait; }
+.row-actions { display: flex; gap: 10px; align-items: center; }
+.save-btn {
+  margin-top: 14px; background: #fff; border: 1px solid var(--line);
+  color: var(--ink-2); border-radius: 11px; padding: 10px 18px; font-weight: 600; font-size: 13px;
+  cursor: pointer; transition: all .2s; font-family: 'Instrument Sans';
+}
+.save-btn:hover { border-color: var(--brand); color: var(--brand-deep); background: var(--brand-soft); }
 .outreach-text {
   margin-top: 11px; display: none; white-space: pre-wrap; font-size: 13px; line-height: 1.65;
   color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
@@ -329,6 +336,7 @@ tr.detail-row.open td .detail-box { display: block; animation: rise .3s both; }
 .send-status { font-size: 12px; color: var(--muted); }
 .email-box { margin-top: 14px; max-width: 720px; }
 .email-box .eb-title { font-family: 'JetBrains Mono'; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin-bottom: 8px; }
+.email-badge { font-size: 10.5px; font-weight: 700; margin-left: 8px; font-family: 'JetBrains Mono'; white-space: nowrap; }
 .email-item {
   display: flex; align-items: center; gap: 10px; background: var(--surface);
   border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px; margin-bottom: 7px;
@@ -434,6 +442,8 @@ footer { padding: 56px 0 40px; }
       <a href="#how">How it works</a>
       <a href="#compare">Compare</a>
       <a href="#faq">FAQ</a>
+      <a href="/pricing">Pricing</a>
+      <a href="#" id="listsLink" onclick="openListsPanel(event)" style="display:none">My lists</a>
       <span id="acctArea">
         <a class="btn btn-primary" href="#" onclick="openAuth(event)">Sign in</a>
       </span>
@@ -450,6 +460,29 @@ footer { padding: 56px 0 40px; }
     <button class="btn btn-primary" id="authGo" onclick="submitAuth()">Log in</button>
     <div class="auth-err" id="authErr"></div>
     <div class="auth-switch" id="authSwitch"></div>
+  </div>
+</div>
+
+<!-- ── save-to-list picker ────────────────────── -->
+<div class="auth-backdrop" id="listPicker" onclick="if(event.target===this)closeListPicker()">
+  <div class="auth-card">
+    <h2>Save to list</h2>
+    <p class="sub" id="listPickerSub">Choose a list, or create a new one.</p>
+    <div id="listPickerItems" style="display:flex;flex-direction:column;gap:7px;max-height:220px;overflow:auto;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <input id="newListName" placeholder="New list name…" style="flex:1">
+      <button class="btn btn-primary" onclick="createAndSave()">Create</button>
+    </div>
+    <div class="auth-err" id="listPickerErr"></div>
+  </div>
+</div>
+
+<!-- ── my lists panel ────────────────────────── -->
+<div class="auth-backdrop" id="listsPanel" onclick="if(event.target===this)closeListsPanel()">
+  <div class="auth-card" style="max-width:560px">
+    <h2>My lists</h2>
+    <p class="sub">Saved prospects, grouped by campaign.</p>
+    <div id="listsBody" style="max-height:60vh;overflow:auto"></div>
   </div>
 </div>
 
@@ -782,10 +815,13 @@ async function upgradeToPro() {
 
 function renderAccount() {
   const area = $("acctArea");
+  const listsLink = $("listsLink");
   if (!currentUser) {
     area.innerHTML = `<a class="btn btn-primary" href="#" onclick="openAuth(event)">Sign in</a>`;
+    if (listsLink) listsLink.style.display = "none";
     return;
   }
+  if (listsLink) listsLink.style.display = "";
   const q = currentUser.quota.searches;
   const upgrade = currentUser.tier === "free"
     ? `<button class="btn-upgrade" onclick="upgradeToPro()">Upgrade</button>` : "";
@@ -1008,7 +1044,10 @@ function personRows(c, i) {
     ${c.fit_reason ? `<div class="fit"></div>` : ""}
     ${(c.highlights || []).length ? `<ul class="highlights">${c.highlights.map(() => "<li></li>").join("")}</ul>` : ""}
     <div class="email-box"><div class="eb-title">✉ Public email discovery</div><div class="email-list"></div></div>
-    <button class="outreach-btn">✦ Draft outreach message</button>
+    <div class="row-actions">
+      <button class="save-btn">＋ Save to list</button>
+      <button class="outreach-btn">✦ Draft outreach message</button>
+    </div>
     <div class="outreach-text"></div>
     <div class="send-row">
       <input class="send-to" type="email" placeholder="their-email@example.com">
@@ -1044,9 +1083,14 @@ function personRows(c, i) {
       d.emails.forEach(e => {
         const item = document.createElement("div");
         item.className = "email-item";
-        item.innerHTML = `<span class="addr"></span><span class="src"></span><button class="copy">Copy</button>`;
+        const badge = { valid: ['✓ verified', '#37b268'], risky: ['⚠ disposable', '#c2890a'], invalid: ['✕ undeliverable', '#c2452d'] }[e.status] || ['', '#888'];
+        item.innerHTML = `<span class="addr"></span><span class="src"></span><span class="email-badge"></span><button class="copy">Copy</button>`;
         item.querySelector(".addr").textContent = e.address;
         item.querySelector(".src").textContent = "via " + e.source;
+        const b = item.querySelector(".email-badge");
+        b.textContent = badge[0];
+        b.style.color = badge[1];
+        b.title = e.reason || "";
         item.querySelector(".copy").addEventListener("click", (ev) => {
           ev.stopPropagation();
           navigator.clipboard.writeText(e.address);
@@ -1104,6 +1148,13 @@ function personRows(c, i) {
     if (r.status === 401) { openAuth(null, "signup"); return; }
     detail.querySelector(".fb-done").textContent = "thanks — noted for ranking";
   }));
+
+  // Save this candidate to a named prospect list
+  detail.querySelector(".save-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!authToken) { openAuth(null, "signup"); return; }
+    openListPicker(c, e.currentTarget);
+  });
 
   // Send the drafted message via the configured SMTP account
   const sendBtn = detail.querySelector(".send-btn");
@@ -1293,6 +1344,118 @@ function runSearch() {
     $("err").style.display = "block";
     $("searchBtn").disabled = false;
   };
+}
+
+// ── saved prospect lists ─────────────────────────
+let _pickerCandidate = null;
+
+async function openListPicker(candidate, btn) {
+  _pickerCandidate = candidate;
+  $("listPickerErr").textContent = "";
+  $("newListName").value = "";
+  const r = await api("/api/lists");
+  const d = await r.json();
+  if (!r.ok) { if (r.status === 401) openAuth(null, "signup"); return; }
+  const items = $("listPickerItems");
+  items.innerHTML = d.lists.length
+    ? d.lists.map(l => `<button class="list-pick" data-id="${l.id}" style="text-align:left;padding:11px 14px;border:1px solid var(--line);border-radius:11px;background:#fff;cursor:pointer;font-size:14px;display:flex;justify-content:space-between"><span></span><span style="color:var(--muted);font-family:'JetBrains Mono';font-size:12px">${l.count} saved</span></button>`).join("")
+    : `<div style="color:var(--muted);font-size:13.5px;padding:6px 2px">No lists yet — create your first one below.</div>`;
+  items.querySelectorAll(".list-pick").forEach((b, i) => {
+    b.querySelector("span").textContent = d.lists[i].name;
+    b.addEventListener("click", () => saveToList(d.lists[i].id, btn));
+  });
+  $("listPicker").classList.add("on");
+}
+function closeListPicker() { $("listPicker").classList.remove("on"); _pickerCandidate = null; }
+
+async function saveToList(listId, btn) {
+  const r = await api(`/api/lists/${listId}/members`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ person: _pickerCandidate })
+  });
+  const d = await r.json();
+  if (r.ok && d.added) {
+    closeListPicker();
+    if (btn) { const t = btn.textContent; btn.textContent = "✓ Saved"; setTimeout(() => btn.textContent = t, 1800); }
+  } else if (r.ok) {
+    $("listPickerErr").textContent = "Already in that list.";
+  } else {
+    $("listPickerErr").textContent = d.detail || "Could not save.";
+  }
+}
+
+async function createAndSave() {
+  const name = $("newListName").value.trim();
+  if (!name) { $("listPickerErr").textContent = "Name the list first."; return; }
+  const r = await api("/api/lists", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name })
+  });
+  const d = await r.json();
+  if (!r.ok) { $("listPickerErr").textContent = d.detail || "Could not create list."; return; }
+  await saveToList(d.id, null);
+  closeListPicker();
+}
+
+async function openListsPanel(e) {
+  if (e) e.preventDefault();
+  if (!authToken) { openAuth(null, "signup"); return; }
+  $("listsPanel").classList.add("on");
+  await renderListsPanel();
+}
+function closeListsPanel() { $("listsPanel").classList.remove("on"); }
+
+async function renderListsPanel() {
+  const body = $("listsBody");
+  body.innerHTML = `<div style="color:var(--muted);padding:12px">loading…</div>`;
+  const r = await api("/api/lists");
+  const d = await r.json();
+  if (!r.ok) { body.innerHTML = `<div style="color:var(--muted)">Could not load lists.</div>`; return; }
+  if (!d.lists.length) {
+    body.innerHTML = `<div style="color:var(--muted);padding:14px 4px;font-size:14px">No lists yet. Run a search, open a person, and hit <b>＋ Save to list</b>.</div>`;
+    return;
+  }
+  body.innerHTML = "";
+  for (const l of d.lists) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "border:1px solid var(--line);border-radius:13px;margin-bottom:10px;overflow:hidden";
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:12px 15px;cursor:pointer;background:#fff";
+    head.innerHTML = `<b style="font-size:14.5px"></b><span style="display:flex;gap:10px;align-items:center"><span style="font-family:'JetBrains Mono';font-size:12px;color:var(--muted)">${l.count} saved</span><button class="del-list" style="border:0;background:none;color:#c2452d;cursor:pointer;font-size:13px">Delete</button></span>`;
+    head.querySelector("b").textContent = l.name;
+    const membersBox = document.createElement("div");
+    membersBox.style.cssText = "display:none;border-top:1px solid var(--line);background:var(--bg)";
+    head.addEventListener("click", async (ev) => {
+      if (ev.target.classList.contains("del-list")) return;
+      const open = membersBox.style.display !== "none";
+      membersBox.style.display = open ? "none" : "block";
+      if (!open && !membersBox.dataset.loaded) {
+        membersBox.dataset.loaded = "1";
+        const mr = await api(`/api/lists/${l.id}`);
+        const md = await mr.json();
+        membersBox.innerHTML = (md.members || []).map(m =>
+          `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 15px;border-top:1px solid var(--line)">
+            <span style="font-size:13.5px"><b></b> <span style="color:var(--muted)"></span></span>
+            <a target="_blank" rel="noopener" style="color:var(--brand);font-size:12.5px;text-decoration:none">view →</a>
+          </div>`).join("") || `<div style="padding:12px;color:var(--muted);font-size:13px">Empty list.</div>`;
+        membersBox.querySelectorAll(":scope > div").forEach((row, j) => {
+          const m = md.members[j]; if (!m) return;
+          row.querySelector("b").textContent = m.name || "(unnamed)";
+          row.querySelectorAll("span")[1].textContent = m.role || m.company || "";
+          const a = row.querySelector("a"); a.href = m.profile_url || "#";
+        });
+      }
+    });
+    head.querySelector(".del-list").addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (!confirm(`Delete list "${l.name}"? This cannot be undone.`)) return;
+      await api(`/api/lists/${l.id}`, { method: "DELETE" });
+      renderListsPanel();
+    });
+    wrap.appendChild(head);
+    wrap.appendChild(membersBox);
+    body.appendChild(wrap);
+  }
 }
 </script>
 </body>

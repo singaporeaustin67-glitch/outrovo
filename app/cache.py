@@ -60,6 +60,15 @@ def _conn() -> sqlite3.Connection:
         "(user_id INTEGER, day TEXT, searches INTEGER DEFAULT 0, sends INTEGER DEFAULT 0, "
         "PRIMARY KEY (user_id, day))"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS lists "
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT, created_at REAL)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS list_members "
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, list_id INTEGER, person_id TEXT, data TEXT, added_at REAL, "
+        "UNIQUE(list_id, person_id))"
+    )
     # Multi-tenancy: personal tables get a user_id (NULL = pre-auth legacy rows,
     # visible only to anonymous use of shared data, never to logged-in users).
     for table in ("history", "outreach_log", "followups", "feedback"):
@@ -380,6 +389,100 @@ def outreach_stats() -> dict:
     pending = conn.execute("SELECT COUNT(*) FROM followups WHERE sent = 0").fetchone()[0]
     conn.close()
     return {"messages_sent": sent, "messages_opened": opened, "followups_pending": pending}
+
+
+# ---- saved prospect lists ----
+
+def create_list(user_id: int, name: str) -> int:
+    conn = _conn()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO lists (user_id, name, created_at) VALUES (?, ?, ?)",
+            (user_id, name.strip()[:100], time.time()),
+        )
+        list_id = cur.lastrowid
+    conn.close()
+    return list_id
+
+
+def get_list(list_id: int, user_id: int) -> dict | None:
+    """Return the list only if it belongs to this user."""
+    conn = _conn()
+    row = conn.execute(
+        "SELECT id, name, created_at FROM lists WHERE id = ? AND user_id = ?",
+        (list_id, user_id),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {"id": row[0], "name": row[1], "created_at": row[2]}
+
+
+def my_lists(user_id: int) -> list[dict]:
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT l.id, l.name, l.created_at, COUNT(m.id) "
+        "FROM lists l LEFT JOIN list_members m ON m.list_id = l.id "
+        "WHERE l.user_id = ? GROUP BY l.id ORDER BY l.created_at DESC",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return [{"id": r[0], "name": r[1], "created_at": r[2], "count": r[3]} for r in rows]
+
+
+def delete_list(list_id: int, user_id: int) -> bool:
+    conn = _conn()
+    with conn:
+        cur = conn.execute("DELETE FROM lists WHERE id = ? AND user_id = ?", (list_id, user_id))
+        conn.execute("DELETE FROM list_members WHERE list_id = ?", (list_id,))
+        changed = cur.rowcount > 0
+    conn.close()
+    return changed
+
+
+def add_to_list(list_id: int, person: dict) -> bool:
+    """Save a candidate snapshot. Returns False if the person is already in the list."""
+    pid = person.get("id") or person.get("profile_url") or ""
+    if not pid:
+        return False
+    conn = _conn()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO list_members (list_id, person_id, data, added_at) VALUES (?, ?, ?, ?)",
+                (list_id, pid, json.dumps(person, ensure_ascii=False), time.time()),
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+
+def list_members(list_id: int) -> list[dict]:
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT data FROM list_members WHERE list_id = ? ORDER BY added_at DESC", (list_id,)
+    ).fetchall()
+    conn.close()
+    out = []
+    for (blob,) in rows:
+        try:
+            out.append(json.loads(blob))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
+def remove_from_list(list_id: int, person_id: str) -> bool:
+    conn = _conn()
+    with conn:
+        cur = conn.execute(
+            "DELETE FROM list_members WHERE list_id = ? AND person_id = ?", (list_id, person_id)
+        )
+        changed = cur.rowcount > 0
+    conn.close()
+    return changed
 
 
 # ---- feedback loop (votes on results feed back into ranking) ----
