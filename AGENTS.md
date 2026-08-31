@@ -75,3 +75,27 @@ is NOT on PATH — always use `python3 -m uvicorn`).
   /api/outreach/log lists sends with opened_at/opens. Stats report messages_opened.
 - Log row is written BEFORE send (needed for the pixel id) and rolled back on
   SMTP failure via cache.delete_outreach_log().
+
+## Iter 11: commercial v1 (accounts + billing + multi-tenancy)
+- `app/auth.py`: PBKDF2-hashed passwords, 30-day bearer tokens in `sessions` table.
+  `user_from_token()` merges the user row with today's usage counters.
+  QUOTAS: free 5 searches + 3 sends/day (UTC), pro 100/50. `_public_user()` fetches
+  usage itself — callers must NOT pre-merge usage into the row (that was a bug).
+- `app/billing.py`: Stripe via raw httpx REST (no stripe pkg). Webhook signature =
+  HMAC-SHA256("{t}.{payload}") with 5-min replay window. checkout.session.completed
+  reads `client_reference_id` = user id → set_user_tier('pro'); subscription
+  deleted/canceled downgrades via stripe_customer_id. Disabled when keys unset.
+- Multi-tenancy: user_id columns on history/outreach_log/followups/feedback (ALTER
+  TABLE guarded by OperationalError for idempotency). NULL = legacy anonymous rows,
+  visible only when NOT logged in. mark_followup_sent takes user_id (IDOR fix).
+  feedback_scores(user_id=...) — votes are a personal signal, never cross-user.
+- Route protection in main.py via FastAPI Depends: require_user (401) for
+  outreach/emails/feedback/refine/followups/log; require_search_access allows
+  anonymous search unless config.AUTH_REQUIRED. Quota 429s before spending LLM tokens;
+  usage recorded only when ranked results exist.
+- Frontend: authToken in localStorage("outrovo_token"), api() helper injects
+  Authorization header, 401 → opens signup modal. ?upgraded=1 return from Stripe
+  shows welcome + refreshes quota. Legal pages at /privacy and /terms.
+- Still needed before charging real money: set STRIPE_* env vars on Render, create
+  the Pro price in Stripe dashboard, point the webhook at /api/billing/webhook.
+  Per-user SMTP (currently one global account) is the next real gap.
