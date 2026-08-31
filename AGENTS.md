@@ -145,3 +145,15 @@ is NOT on PATH — always use `python3 -m uvicorn`).
 - Marketing says "100+ sources & communities" -- true via SE network multiplier
   + 27 named connectors. Only ~4-8 sources fire per search (planner-chosen);
   that is by design for latency (still ~16s end-to-end).
+
+## Iter 14: conversational search UI (replaced terminal trace)
+- #trace is now class="chat" — msg rows: user bubble (green, initial avatar),
+  agent cards (dark ✦ avatar). Builders in index.html: chatUser/chatAgent,
+  chatProgress (dots + live match counter + per-source chips), chatFilters
+  (pills + Location/Job Title/YoE/Industry/Skills checklist), chatCriteria.
+- SSE flow: status -> progress.setText, plan -> chatFilters+chatCriteria then
+  re-append progress row so order reads ask -> filters -> criteria -> scanning.
+- filterCard.setTotal(total_candidates) on done; Edit filters/criteria just
+  focus the refine input.
+- Browser testing note: work-1 proxy needs --host 0.0.0.0 or it 502s; set
+  localStorage outrovo_token via browser_set_storage to test as signed-in.
