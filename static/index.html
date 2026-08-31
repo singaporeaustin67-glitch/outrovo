@@ -390,6 +390,38 @@ footer { padding: 56px 0 40px; }
 .foot-links { display: flex; gap: 22px; }
 .foot-links a { color: var(--muted); text-decoration: none; font-size: 13px; }
 .foot-links a:hover { color: var(--brand); }
+
+/* auth modal + account chip */
+.auth-backdrop {
+  display: none; position: fixed; inset: 0; background: rgba(15,26,20,.45);
+  backdrop-filter: blur(3px); z-index: 90;
+}
+.auth-backdrop.on { display: flex; align-items: center; justify-content: center; }
+.auth-card {
+  background: #fff; border-radius: 20px; padding: 30px 32px; width: min(400px, 92vw);
+  box-shadow: 0 24px 60px rgba(15,26,20,.25);
+}
+.auth-card h2 { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+.auth-card p.sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+.auth-card input {
+  width: 100%; padding: 11px 13px; border: 1px solid var(--border); border-radius: 11px;
+  font-size: 14px; font-family: inherit; margin-bottom: 10px; box-sizing: border-box;
+}
+.auth-card input:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
+.auth-card .btn-primary { width: 100%; justify-content: center; margin-top: 4px; }
+.auth-err { color: #b3261e; font-size: 12px; min-height: 16px; margin-top: 8px; }
+.auth-switch { margin-top: 14px; font-size: 13px; color: var(--muted); text-align: center; }
+.auth-switch a { color: var(--brand); cursor: pointer; font-weight: 600; text-decoration: none; }
+.acct { display: inline-flex; align-items: center; gap: 9px; font-size: 13px; }
+.acct-email { color: var(--ink); font-weight: 600; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tier-badge { padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.tier-badge.free { background: #f1f1f1; color: var(--muted); }
+.tier-badge.pro { background: var(--lime); color: var(--ink); }
+.quota-note { color: var(--muted); font-size: 12px; }
+.acct button { background: none; border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer; color: var(--muted); font-family: inherit; }
+.acct button:hover { border-color: var(--brand); color: var(--brand); }
+.acct .btn-upgrade { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+.acct .btn-upgrade:hover { filter: brightness(1.08); color: #fff; }
 </style>
 </head>
 <body>
@@ -402,10 +434,24 @@ footer { padding: 56px 0 40px; }
       <a href="#how">How it works</a>
       <a href="#compare">Compare</a>
       <a href="#faq">FAQ</a>
-      <a class="btn btn-primary" href="#top" onclick="focusSearch(event)">Start searching</a>
+      <span id="acctArea">
+        <a class="btn btn-primary" href="#" onclick="openAuth(event)">Sign in</a>
+      </span>
     </div>
   </div>
 </nav>
+
+<div class="auth-backdrop" id="authBackdrop" onclick="if(event.target===this)closeAuth()">
+  <div class="auth-card">
+    <h2 id="authTitle">Welcome back</h2>
+    <p class="sub" id="authSub">Log in to save your searches and run outreach.</p>
+    <input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email">
+    <input id="authPass" type="password" placeholder="Password (8+ characters)" autocomplete="current-password">
+    <button class="btn btn-primary" id="authGo" onclick="submitAuth()">Log in</button>
+    <div class="auth-err" id="authErr"></div>
+    <div class="auth-switch" id="authSwitch"></div>
+  </div>
+</div>
 
 <!-- ── hero + search ─────────────────────────── -->
 <header class="hero" id="top">
@@ -634,6 +680,8 @@ footer { padding: 56px 0 40px; }
       <a href="#how">How it works</a>
       <a href="#compare">Compare</a>
       <a href="#faq">FAQ</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
     </div>
     <div class="foot-note">© 2026 Outrovo · Real people · Real profiles · AI-reviewed · <span id="indexCount"></span></div>
   </div>
@@ -648,6 +696,123 @@ fetch("/api/health").then(r => r.json()).then(d => {
 <script>
 const $ = (id) => document.getElementById(id);
 let lastQuery = "";
+
+/* ── auth state ─────────────────────────────── */
+let authToken = localStorage.getItem("outrovo_token") || "";
+let currentUser = null;
+let authMode = "login";
+
+function authHeaders() {
+  return authToken ? { "Authorization": "Bearer " + authToken } : {};
+}
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}), ...authHeaders() };
+  return fetch(path, { ...opts, headers });
+}
+
+function openAuth(e, mode) {
+  if (e) e.preventDefault();
+  authMode = mode || "login";
+  renderAuthMode();
+  $("authErr").textContent = "";
+  $("authBackdrop").classList.add("on");
+  setTimeout(() => $("authEmail").focus(), 50);
+}
+
+function closeAuth() { $("authBackdrop").classList.remove("on"); }
+
+function renderAuthMode() {
+  const login = authMode === "login";
+  $("authTitle").textContent = login ? "Welcome back" : "Create your account";
+  $("authSub").textContent = login
+    ? "Log in to save your searches and run outreach."
+    : "Free plan: 5 searches/day · 3 outreach emails/day. No card required.";
+  $("authGo").textContent = login ? "Log in" : "Sign up free";
+  $("authPass").autocomplete = login ? "current-password" : "new-password";
+  $("authSwitch").innerHTML = login
+    ? `No account yet? <a onclick="openAuth(null,'signup')">Sign up free</a>`
+    : `Already have an account? <a onclick="openAuth(null,'login')">Log in</a>`;
+}
+
+async function submitAuth() {
+  const email = $("authEmail").value.trim();
+  const password = $("authPass").value;
+  const err = $("authErr");
+  err.textContent = "";
+  if (!email || !password) { err.textContent = "Email and password required."; return; }
+  $("authGo").disabled = true;
+  try {
+    const r = await fetch("/api/auth/" + authMode, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "failed");
+    authToken = d.token;
+    localStorage.setItem("outrovo_token", authToken);
+    currentUser = d.user;
+    closeAuth();
+    renderAccount();
+    loadHistory();
+    loadOutreachLog();
+  } catch (e) {
+    err.textContent = String(e.message).slice(0, 140);
+  } finally { $("authGo").disabled = false; }
+}
+
+async function doLogout() {
+  try { await api("/api/auth/logout", { method: "POST" }); } catch (_) {}
+  authToken = ""; currentUser = null;
+  localStorage.removeItem("outrovo_token");
+  renderAccount();
+  loadOutreachLog();
+}
+
+async function upgradeToPro() {
+  try {
+    const r = await api("/api/billing/checkout", { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "unavailable");
+    window.location.href = d.checkout_url;
+  } catch (e) {
+    alert("Upgrade isn't available yet: " + e.message);
+  }
+}
+
+function renderAccount() {
+  const area = $("acctArea");
+  if (!currentUser) {
+    area.innerHTML = `<a class="btn btn-primary" href="#" onclick="openAuth(event)">Sign in</a>`;
+    return;
+  }
+  const q = currentUser.quota.searches;
+  const upgrade = currentUser.tier === "free"
+    ? `<button class="btn-upgrade" onclick="upgradeToPro()">Upgrade</button>` : "";
+  area.innerHTML = `<span class="acct">
+    <span class="acct-email" title="${esc(currentUser.email)}">${esc(currentUser.email)}</span>
+    <span class="tier-badge ${currentUser.tier}">${currentUser.tier}</span>
+    <span class="quota-note">${q.used}/${q.limit} searches today</span>
+    ${upgrade}
+    <button onclick="doLogout()">Log out</button>
+  </span>`;
+}
+
+async function restoreSession() {
+  if (!authToken) { renderAccount(); return; }
+  try {
+    const r = await api("/api/auth/me");
+    if (!r.ok) throw new Error();
+    currentUser = (await r.json()).user;
+  } catch (_) {
+    authToken = ""; localStorage.removeItem("outrovo_token");
+  }
+  renderAccount();
+}
+["authEmail", "authPass"].forEach(id =>
+  document.addEventListener("keydown", e => {
+    if (e.key === "Enter" && e.target && e.target.id === id) submitAuth();
+  }));
 
 function focusSearch(e) {
   e.preventDefault();
@@ -721,7 +886,7 @@ function renderHistory(items) {
 }
 async function loadHistory() {
   try {
-    const r = await fetch("/api/history");
+    const r = await api("/api/history");
     const d = await r.json();
     renderHistory(d.history);
   } catch (_) { /* history is best-effort */ }
@@ -738,10 +903,11 @@ function fmtDate(ts) {
 
 async function loadOutreachLog() {
   try {
-    const r = await fetch("/api/outreach/log");
+    const r = await api("/api/outreach/log");
+    const panel = $("outreachPanel");
+    if (r.status === 401) { panel.style.display = "none"; return; }
     const d = await r.json();
     const msgs = d.messages || [];
-    const panel = $("outreachPanel");
     if (!msgs.length) { panel.style.display = "none"; return; }
     $("outreachRows").innerHTML = msgs.map(m => {
       const badge = m.opened_at
@@ -766,8 +932,18 @@ function rerunQuery(btn) {
   input.focus();
   document.getElementById("searchBtn")?.click();
 }
-loadHistory();
-loadOutreachLog();
+async function refreshQuota() {
+  if (!authToken) return;
+  try {
+    const r = await api("/api/auth/me");
+    if (r.ok) { currentUser = (await r.json()).user; renderAccount(); }
+  } catch (_) { /* best-effort */ }
+}
+restoreSession().then(() => { loadHistory(); loadOutreachLog(); });
+if (new URLSearchParams(location.search).get("upgraded")) {
+  setTimeout(() => { refreshQuota(); alert("Welcome to Outrovo Pro — your limits are lifted."); }, 600);
+  history.replaceState(null, "", location.pathname);
+}
 
 function exportCsv() {
   if (!lastResults?.results?.length) return;
@@ -851,12 +1027,15 @@ function personRows(c, i) {
     const list = detail.querySelector(".email-list");
     list.innerHTML = `<div class="email-loading">scanning public sources for published emails…</div>`;
     try {
-      const r = await fetch("/api/emails", {
+      const r = await api("/api/emails", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ candidate: c })
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.detail || "failed");
+      if (!r.ok) {
+        if (r.status === 401) openAuth(null, "signup");
+        throw new Error(d.detail || "failed");
+      }
       if (!d.emails.length) {
         list.innerHTML = `<div class="email-none">No publicly published email found for this person.</div>`;
         return;
@@ -898,12 +1077,15 @@ function personRows(c, i) {
     e.stopPropagation();
     btn.disabled = true; btn.textContent = "✦ Drafting…";
     try {
-      const r = await fetch("/api/outreach", {
+      const r = await api("/api/outreach", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: lastQuery, candidate: c })
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.detail || "failed");
+      if (!r.ok) {
+        if (r.status === 401) openAuth(null, "signup");
+        throw new Error(d.detail || "failed");
+      }
       box.textContent = d.message;
       box.classList.add("on");
       btn.textContent = "✦ Regenerate";
@@ -915,10 +1097,11 @@ function personRows(c, i) {
   // Feedback loop — votes influence ranking of future similar searches
   detail.querySelectorAll(".fb-btn").forEach(b => b.addEventListener("click", async (e) => {
     e.stopPropagation();
-    await fetch("/api/feedback", {
+    const r = await api("/api/feedback", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: lastQuery, person_id: c.id, vote: Number(b.dataset.vote) })
     });
+    if (r.status === 401) { openAuth(null, "signup"); return; }
     detail.querySelector(".fb-done").textContent = "thanks — noted for ranking";
   }));
 
@@ -933,14 +1116,18 @@ function personRows(c, i) {
     if (!to || !body) { status.textContent = "draft a message and enter an email first"; return; }
     sendBtn.disabled = true; status.textContent = "sending…";
     try {
-      const r = await fetch("/api/outreach/send", {
+      const r = await api("/api/outreach/send", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ candidate: c, to, subject, body })
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.detail || "failed");
+      if (!r.ok) {
+        if (r.status === 401) openAuth(null, "signup");
+        throw new Error(d.detail || "failed");
+      }
       status.textContent = `sent ✓${d.tracked ? " · open tracking on" : ""} · follow-up reminder in ${d.followup_due_in_days}d`;
       loadOutreachLog();
+      refreshQuota();
     } catch (err) {
       status.textContent = String(err.message).slice(0, 120);
     } finally { sendBtn.disabled = false; }
@@ -977,11 +1164,12 @@ async function runRefine() {
   traceLine("you", instruction);
   let live = traceLine("agent", "refining the current list…", true);
   try {
-    const resp = await fetch("/api/refine", {
+    const resp = await api("/api/refine", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: lastQuery, instruction, candidates: lastResults.results }),
     });
+    if (resp.status === 401) { openAuth(null, "signup"); throw new Error("sign in to refine results"); }
     if (!resp.ok) throw new Error("refine failed");
     const out = await resp.json();
     live.querySelector(".scan")?.remove();

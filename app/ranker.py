@@ -70,7 +70,7 @@ def _prescore(c: dict) -> float:
     return score
 
 
-async def rank_candidates(query: str, candidates: list[dict]) -> list[dict]:
+async def rank_candidates(query: str, candidates: list[dict], user_id: int | None = None) -> list[dict]:
     if not candidates:
         return []
     # Cap the batch so the prompt stays within context limits. Keep every
@@ -78,9 +78,9 @@ async def rank_candidates(query: str, candidates: list[dict]) -> list[dict]:
     # they were already proven relevant once, so don't let live sources crowd
     # them out of the 24-slot prompt. Live candidates compete by pre-score.
     indexed = [c for c in candidates if c.get("source") == "index"]
-    # Feedback loop: explicit thumbs up/down on past results nudges who makes
-    # the review batch (and, after review, the final ordering).
-    votes = cache.feedback_scores(query)
+    # Feedback loop: a user's own thumbs up/down nudges who makes their review
+    # batch (and, after review, the final ordering) — never other users'.
+    votes = cache.feedback_scores(query, user_id=user_id)
     live = sorted(
         (c for c in candidates if c.get("source") != "index"),
         key=lambda c: _prescore(c) + 3 * votes.get(c.get("id", ""), 0),

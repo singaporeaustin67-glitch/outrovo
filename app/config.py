@@ -26,6 +26,15 @@ FROM_NAME = os.getenv("FROM_NAME", "Outrovo")
 # Public URL of this app, used to build open-tracking pixel URLs in sent emails.
 # Render sets RENDER_EXTERNAL_URL automatically; locally this stays empty (no pixel).
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", os.getenv("RENDER_EXTERNAL_URL", "")).rstrip("/")
+
+# Billing via Stripe (optional — app runs free-tier-only without these)
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID", "")  # recurring price, e.g. price_123
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+
+# Set AUTH_REQUIRED=1 to force login before searching (commercial mode).
+# Default off: visitors can try search anonymously; outreach always needs login.
+AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "").lower() in ("1", "true", "yes")
 PRODUCTHUNT_API_KEY = os.getenv("PRODUCTHUNT_API_KEY", "")  # free: producthunt.com/v2/oauth/applications
 PRODUCTHUNT_API_SECRET = os.getenv("PRODUCTHUNT_API_SECRET", "")
 

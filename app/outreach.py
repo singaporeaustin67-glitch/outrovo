@@ -54,24 +54,26 @@ def _send_sync(to: str, subject: str, body: str, pixel_url: str = "") -> None:
         smtp.send_message(msg)
 
 
-async def send_outreach(candidate: dict, to: str, subject: str, body: str) -> dict:
+async def send_outreach(candidate: dict, to: str, subject: str, body: str,
+                        user_id: int | None = None) -> dict:
     """Send one message via SMTP and log it + schedule a follow-up proposal."""
     if not sending_configured():
         raise RuntimeError("SMTP not configured (set SMTP_HOST/USER/PASS in .env)")
     # Log first so the pixel URL can be keyed to the log id; roll back on failure.
-    log_id = cache.log_outreach(candidate.get("id", ""), to, subject, body)
+    log_id = cache.log_outreach(candidate.get("id", ""), to, subject, body, user_id=user_id)
     try:
         await asyncio.to_thread(_send_sync, to, subject, body, _pixel_url(log_id))
     except Exception:
         cache.delete_outreach_log(log_id)
         raise
     followup_id = cache.schedule_followup(
-        candidate.get("id", ""), to, subject, body, time.time() + FOLLOW_UP_DAYS * 86400
+        candidate.get("id", ""), to, subject, body,
+        time.time() + FOLLOW_UP_DAYS * 86400, user_id=user_id,
     )
     return {"sent": True, "log_id": log_id, "followup_id": followup_id,
             "tracked": bool(config.PUBLIC_BASE_URL),
             "followup_due_in_days": FOLLOW_UP_DAYS}
 
 
-def due_followups() -> list[dict]:
-    return cache.due_followups(time.time())
+def due_followups(user_id: int | None = None) -> list[dict]:
+    return cache.due_followups(time.time(), user_id=user_id)
