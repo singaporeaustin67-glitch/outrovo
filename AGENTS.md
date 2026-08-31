@@ -99,3 +99,26 @@ is NOT on PATH — always use `python3 -m uvicorn`).
 - Still needed before charging real money: set STRIPE_* env vars on Render, create
   the Pro price in Stripe dashboard, point the webhook at /api/billing/webhook.
   Per-user SMTP (currently one global account) is the next real gap.
+
+## Iter 12: Lessie-parity (pricing + lists + email verification)
+- Researched lessie.ai: their core loop is chat search -> scored results -> "My List"
+  saved lists -> verified-contact unlock -> sequenced outreach. Credit-based pricing
+  (Free 1500 cr, Basic ~$40, Pro ~$160, Max ~$300). We now match: search, scoring,
+  saved lists, email verification, outreach. Not yet matched: true chat interface
+  (we're one-shot + refine box), multi-step auto sequences, reply tracking.
+- static/pricing.html: Free $0 / Pro $29 / Max $79 (deliberately cheaper than Lessie).
+- Saved lists: `lists` + `list_members` tables in cache._conn(). Routes /api/lists
+  (GET/POST), /api/lists/{id} (GET/DELETE), /api/lists/{id}/members (POST/DELETE),
+  all user-scoped via get_list(list_id, user_id) guard. UNIQUE(list_id, person_id)
+  rejects duplicate saves. UI: "＋ Save to list" button in each result detail row
+  opens a picker (save to existing or create+save); "My lists" nav link (visible
+  only when logged in) opens a panel to expand/delete lists.
+- MODAL GOTCHA: this project's modals toggle class "on", NOT "open". Auth modal,
+  list picker, and lists panel all use .auth-backdrop + .on. Fixed a bug where new
+  modals used .open and silently never displayed.
+- app/emailverify.py: syntax + disposable-domain + DNS MX check. NO SMTP RCPT
+  probing (unreliable + reputation risk from datacenter IPs). verify_all(emails,
+  key="address") preserves the {address,source,url} dict shape from
+  connectors.discover_emails() while merging in status/reason. /api/emails returns
+  verified best-first; UI badges ✓ verified / ⚠ disposable / ✕ undeliverable.
+- dnspython is NOT installed and NOT needed — _has_mx falls back to socket.getaddrinfo.
