@@ -3,7 +3,7 @@ import json
 import time
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -222,6 +222,30 @@ async def send_outreach(req: SendOutreachRequest):
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"send failed: {e}")
+
+
+# 1x1 transparent GIF returned by the open-tracking pixel endpoint
+_PIXEL_GIF = bytes.fromhex(
+    "47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b"
+)
+
+
+@app.get("/api/track/open/{log_id}.gif")
+async def track_open(log_id: int):
+    """Email open-tracking pixel. Called by the recipient's mail client when it
+    loads images; records the first-open time and total open count."""
+    cache.record_open(log_id)
+    return Response(
+        content=_PIXEL_GIF,
+        media_type="image/gif",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
+
+
+@app.get("/api/outreach/log")
+async def outreach_log():
+    """Recent sent messages with open status (opened_at / opens per message)."""
+    return {"messages": cache.recent_outreach()}
 
 
 @app.get("/api/outreach/followups")

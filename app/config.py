@@ -23,6 +23,9 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 FROM_EMAIL = os.getenv("FROM_EMAIL", "")
 FROM_NAME = os.getenv("FROM_NAME", "Outrovo")
+# Public URL of this app, used to build open-tracking pixel URLs in sent emails.
+# Render sets RENDER_EXTERNAL_URL automatically; locally this stays empty (no pixel).
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", os.getenv("RENDER_EXTERNAL_URL", "")).rstrip("/")
 PRODUCTHUNT_API_KEY = os.getenv("PRODUCTHUNT_API_KEY", "")  # free: producthunt.com/v2/oauth/applications
 PRODUCTHUNT_API_SECRET = os.getenv("PRODUCTHUNT_API_SECRET", "")
 

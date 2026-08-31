@@ -24,6 +24,11 @@ def _conn() -> sqlite3.Connection:
         "(id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT, to_addr TEXT, "
         "subject TEXT, body TEXT, sent_at REAL)"
     )
+    for col in ("opened_at REAL", "opens INTEGER DEFAULT 0"):
+        try:
+            conn.execute(f"ALTER TABLE outreach_log ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass  # column already exists
     conn.execute(
         "CREATE TABLE IF NOT EXISTS followups "
         "(id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT, to_addr TEXT, "
@@ -140,6 +145,39 @@ def log_outreach(candidate_id: str, to_addr: str, subject: str, body: str) -> in
     return row_id
 
 
+def record_open(log_id: int) -> None:
+    """Record an email-open event (tracking pixel hit). Keeps first-open time + total count."""
+    conn = _conn()
+    with conn:
+        conn.execute(
+            "UPDATE outreach_log SET opened_at = COALESCE(opened_at, ?), opens = COALESCE(opens, 0) + 1 WHERE id = ?",
+            (time.time(), log_id),
+        )
+    conn.close()
+
+
+def recent_outreach(limit: int = 50) -> list[dict]:
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT id, candidate_id, to_addr, subject, sent_at, opened_at, opens "
+        "FROM outreach_log ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [
+        {"id": r[0], "candidate_id": r[1], "to": r[2], "subject": r[3],
+         "sent_at": r[4], "opened_at": r[5], "opens": r[6] or 0}
+        for r in rows
+    ]
+
+
+def delete_outreach_log(log_id: int) -> None:
+    conn = _conn()
+    with conn:
+        conn.execute("DELETE FROM outreach_log WHERE id = ?", (log_id,))
+    conn.close()
+
+
 def schedule_followup(candidate_id: str, to_addr: str, orig_subject: str, orig_body: str, due_at: float) -> int:
     conn = _conn()
     with conn:
@@ -173,9 +211,10 @@ def mark_followup_sent(followup_id: int) -> None:
 def outreach_stats() -> dict:
     conn = _conn()
     sent = conn.execute("SELECT COUNT(*) FROM outreach_log").fetchone()[0]
+    opened = conn.execute("SELECT COUNT(*) FROM outreach_log WHERE opened_at IS NOT NULL").fetchone()[0]
     pending = conn.execute("SELECT COUNT(*) FROM followups WHERE sent = 0").fetchone()[0]
     conn.close()
-    return {"messages_sent": sent, "followups_pending": pending}
+    return {"messages_sent": sent, "messages_opened": opened, "followups_pending": pending}
 
 
 # ---- feedback loop (votes on results feed back into ranking) ----
