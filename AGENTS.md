@@ -65,3 +65,13 @@ is NOT on PATH — always use `python3 -m uvicorn`).
   probed, all 429 or JSON disabled (text/html). search_websearch() falls back to
   concurrent SearXNG attempts when TAVILY_API_KEY is unset (best-effort, bounded
   latency), but expect empty — Tavily remains the only working websearch.
+
+## Iter 10: email open tracking
+- Outreach emails are now multipart/alternative (plain text + HTML part with a
+  1x1 GIF pixel keyed to the outreach_log id). Pixel URL built from
+  config.PUBLIC_BASE_URL (auto: RENDER_EXTERNAL_URL on Render; empty locally =
+  no pixel, plain-text only).
+- GET /api/track/open/{log_id}.gif records first open + count; GET
+  /api/outreach/log lists sends with opened_at/opens. Stats report messages_opened.
+- Log row is written BEFORE send (needed for the pixel id) and rolled back on
+  SMTP failure via cache.delete_outreach_log().
