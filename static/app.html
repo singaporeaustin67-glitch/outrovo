@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Outrovo — Search</title>
+<meta name="description" content="Describe who you need in plain language — Outrovo finds, reviews, and ranks real people from live public sources." />
+<meta name="robots" content="noindex" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/site.css">
+<style>
+  /* app shell overrides */
+  .hero { padding: 64px 0 30px; }
+  #results { padding: 10px 0 84px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-inner">
+    <a class="logo" href="/"><span class="logo-mark">O</span>outrovo</a>
+    <div class="nav-links">
+      <a href="#" id="listsLink" onclick="openListsPanel(event)" style="display:none">My lists</a>
+      <a href="/pricing">Pricing</a>
+      <span id="acctArea">
+        <a class="btn btn-primary" href="#" onclick="openAuth(event)">Sign in</a>
+      </span>
+    </div>
+  </div>
+</nav>
+
+<div class="auth-backdrop" id="authBackdrop" onclick="if(event.target===this)closeAuth()">
+  <div class="auth-card">
+    <h2 id="authTitle">Welcome back</h2>
+    <p class="sub" id="authSub">Log in to save your searches and run outreach.</p>
+    <input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email">
+    <input id="authPass" type="password" placeholder="Password (8+ characters)" autocomplete="current-password">
+    <button class="btn btn-primary" id="authGo" onclick="submitAuth()">Log in</button>
+    <div class="auth-err" id="authErr"></div>
+    <div class="auth-switch" id="authSwitch"></div>
+  </div>
+</div>
+
+<!-- ── save-to-list picker ────────────────────── -->
+<div class="auth-backdrop" id="listPicker" onclick="if(event.target===this)closeListPicker()">
+  <div class="auth-card">
+    <h2>Save to list</h2>
+    <p class="sub" id="listPickerSub">Choose a list, or create a new one.</p>
+    <div id="listPickerItems" style="display:flex;flex-direction:column;gap:7px;max-height:220px;overflow:auto;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <input id="newListName" placeholder="New list name…" style="flex:1">
+      <button class="btn btn-primary" onclick="createAndSave()">Create</button>
+    </div>
+    <div class="auth-err" id="listPickerErr"></div>
+  </div>
+</div>
+
+<!-- ── my lists panel ────────────────────────── -->
+<div class="auth-backdrop" id="listsPanel" onclick="if(event.target===this)closeListsPanel()">
+  <div class="auth-card" style="max-width:560px">
+    <h2>My lists</h2>
+    <p class="sub">Saved prospects, grouped by campaign.</p>
+    <div id="listsBody" style="max-height:60vh;overflow:auto"></div>
+  </div>
+</div>
+
+<!-- ── search ─────────────────────────── -->
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="console">
+      <div class="console-row">
+        <span class="console-icon">✦</span>
+        <input id="query" placeholder="Describe the type of person you want to find…" autocomplete="off" />
+        <button id="searchBtn">Find</button>
+      </div>
+    </div>
+
+    <section id="outreachPanel">
+      <div class="panel">
+        <h3>Outreach — sent &amp; opened</h3>
+        <div id="outreachRows"></div>
+      </div>
+    </section>
+  </div>
+</header>
+
+<!-- ── results ─────────────────────────── -->
+<section id="results">
+  <div class="wrap">
+    <div class="err" id="err"></div>
+    <div class="chat" id="trace"></div>
+    <div class="results-meta" id="resultsMeta"></div>
+    <div class="export-bar" id="exportBar" style="display:none;">
+      <button class="btn-export" onclick="exportCsv()">⬇ Export CSV</button>
+    </div>
+    <div class="refine-bar" id="refineBar" style="display:none;">
+      <input id="refineInput" placeholder='Refine these results — e.g. "only Taiwan", "drop agencies", "sort by followers"…' autocomplete="off" />
+      <button class="btn-refine" id="refineBtn" onclick="runRefine()">Refine</button>
+    </div>
+    <div class="table-wrap" id="tableWrap" style="display:none;">
+      <table class="results">
+        <thead>
+          <tr>
+            <th data-sort="name">Profile</th>
+            <th data-sort="fit_score">Match</th>
+            <th>Link</th>
+            <th data-sort="company">Company</th>
+            <th data-sort="role">Title</th>
+            <th>Email</th>
+            <th data-sort="country_code">Country</th>
+            <th data-sort="followers">Followers</th>
+            <th data-sort="avg_views">Avg. Views</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty" style="display:none;"></div>
+  </div>
+</section>
+
+<script src="/static/shared.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

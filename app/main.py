@@ -481,6 +481,12 @@ async def pricing():
     return FileResponse("static/pricing.html")
 
 
+@app.get("/app")
+async def app_page():
+    """The product: conversational people search. Landing lives at /."""
+    return FileResponse("static/app.html")
+
+
 @app.get("/privacy")
 async def privacy():
     return FileResponse("static/privacy.html")
