@@ -172,16 +172,45 @@ section { padding: 84px 0; }
 /* ── results ─────────────────────── */
 #results { display: none; padding: 84px 0; }
 #results.on { display: block; }
-.trace {
-  max-width: 780px; margin: 0 auto 36px; background: var(--ink); color: #cfe3d4;
-  border-radius: 16px; padding: 20px 24px; font-family: 'JetBrains Mono'; font-size: 12.5px;
-  box-shadow: var(--shadow);
+
+/* conversational search flow */
+.chat { max-width: 780px; margin: 0 auto 36px; display: flex; flex-direction: column; gap: 16px; }
+.msg { display: flex; gap: 12px; align-items: flex-start; animation: rise .35s both; }
+.msg .av {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px;
 }
-.trace-line { display: flex; gap: 12px; padding: 5px 0; border-bottom: 1px dashed rgba(255,255,255,.09); animation: rise .35s both; }
-.trace-line:last-child { border-bottom: none; }
-.t-tag { color: var(--lime); min-width: 92px; text-transform: uppercase; font-size: 10.5px; letter-spacing: .1em; padding-top: 2px; }
-.t-val { color: #e8f2ea; }
-.scan { display: inline-block; width: 8px; height: 14px; background: var(--lime); margin-left: 6px; animation: pulse .8s steps(2) infinite; }
+.msg.user .av { background: var(--brand-deep); color: #fff; }
+.msg.agent .av { background: var(--ink); color: var(--lime); }
+.msg .bubble {
+  flex: 1; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 18px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(20,30,20,.05);
+}
+.msg.user .bubble { background: var(--brand-soft); border-color: var(--brand); font-size: 15px; }
+.b-title { font-size: 15px; color: var(--ink); }
+.b-title + .pills, .b-title + .dims { margin-top: 12px; }
+.b-title b { color: var(--brand-deep); }
+.b-title .mtotal { color: var(--brand-deep); font-weight: 700; }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pill { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; font-size: 13.5px; }
+.pill .n { color: var(--muted); font-size: 11.5px; margin-left: 3px; vertical-align: super; }
+.pill-more { background: var(--brand-soft); border: 1px solid var(--brand); color: var(--brand-deep); border-radius: 12px; padding: 8px 14px; font-size: 13px; font-weight: 600; }
+.pill-join { color: var(--muted); font-size: 13.5px; }
+.edit-link { background: none; border: 0; color: var(--brand); font-size: 13.5px; font-weight: 600; cursor: pointer; padding: 8px 4px; }
+.edit-link:hover { text-decoration: underline; }
+.dims { display: flex; flex-wrap: wrap; gap: 18px; }
+.dim { font-size: 13px; color: #a8b0a2; display: flex; gap: 6px; align-items: center; }
+.dim .ck { color: #ccd3c6; }
+.dim.on { color: var(--brand-deep); font-weight: 600; }
+.dim.on .ck { color: var(--brand); }
+.src-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.src-chip {
+  font-family: 'JetBrains Mono'; font-size: 11px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 8px; padding: 4px 9px; background: #fff;
+  animation: rise .3s both;
+}
+.dots::after { content: ""; animation: dots 1.4s steps(4) infinite; }
+@keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
 .results-meta { text-align: center; color: var(--muted); font-size: 14px; margin-bottom: 34px; font-family: 'JetBrains Mono'; }
 .export-bar { text-align: center; margin: -26px 0 34px; }
 .btn-export { padding: 9px 18px; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -615,7 +644,7 @@ footer { padding: 56px 0 40px; }
       <h2>Your matches</h2>
     </div>
     <div class="err" id="err"></div>
-    <div class="trace" id="trace"></div>
+    <div class="chat" id="trace"></div>
     <div class="results-meta" id="resultsMeta"></div>
     <div class="export-bar" id="exportBar" style="display:none;">
       <button class="btn-export" onclick="exportCsv()">⬇ Export CSV</button>
@@ -863,14 +892,106 @@ $("searchBtn").addEventListener("click", runSearch);
 $("query").addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
 $("refineInput").addEventListener("keydown", e => { if (e.key === "Enter") runRefine(); });
 
-function traceLine(tag, val, scan) {
-  const div = document.createElement("div");
-  div.className = "trace-line";
-  div.innerHTML = `<span class="t-tag">${tag}</span><span class="t-val"></span>`;
-  div.querySelector(".t-val").textContent = val;
-  if (scan) { const s = document.createElement("span"); s.className = "scan"; div.appendChild(s); }
-  $("trace").appendChild(div);
-  return div;
+// ── conversational search messages ───────────────────────────
+function _msgRow(kind, html) {
+  const row = document.createElement("div");
+  row.className = "msg " + kind;
+  const mark = kind === "user" ? (currentUser?.email?.[0] || "Y").toUpperCase() : "✦";
+  row.innerHTML = `<div class="av">${mark}</div><div class="bubble"></div>`;
+  const b = row.querySelector(".bubble");
+  if (typeof html === "string") { const d = document.createElement("div"); d.textContent = html; b.appendChild(d); }
+  else b.appendChild(html);
+  $("trace").appendChild(row);
+  return row;
+}
+function chatUser(text) { return _msgRow("user", text); }
+function chatAgent(text) { return _msgRow("agent", text); }
+
+function _el(html) { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; }
+
+// Simple live progress bubble ("Scanning live sources… 12 matches found")
+function chatProgress(label) {
+  const card = _el(`<div><div class="b-title"><span class="p-label"></span><span class="dots"></span> — <span class="p-found">0 matches found</span></div><div class="src-chips"></div></div>`);
+  card.querySelector(".p-label").textContent = label;
+  const row = _msgRow("agent", card);
+  let found = 0;
+  return {
+    row,
+    setText(t) { card.querySelector(".p-label").textContent = t; },
+    addSource(name, count) {
+      found += count;
+      card.querySelector(".p-found").textContent = `${found.toLocaleString()} matches found`;
+      const chip = document.createElement("span");
+      chip.className = "src-chip";
+      chip.textContent = `✓ ${name} · ${count}`;
+      card.querySelector(".src-chips").appendChild(chip);
+    },
+    finish(text) {
+      card.querySelector(".dots")?.remove();
+      card.querySelector(".b-title").textContent = text;
+    },
+  };
+}
+
+function _pillRow(items, max = 2) {
+  const frag = document.createDocumentFragment();
+  items.slice(0, max).forEach((t, i) => {
+    const extra = items.length > max && i === max - 1 ? `<span class="n">+${items.length - max + 1}</span>` : "";
+    const p = _el(`<span class="pill"><span></span>${extra}</span>`);
+    p.querySelector("span").textContent = t;
+    frag.appendChild(p);
+  });
+  return frag;
+}
+
+// "I've set these filters based on what you're looking for" card
+function chatFilters(plan) {
+  const card = _el(`<div>
+    <div class="b-title">I've set these <b>filters</b> based on what you're looking for (<span class="mtotal">…</span> matches scanned)</div>
+    <div class="pills"></div>
+    <div class="dims"></div>
+  </div>`);
+  const pills = card.querySelector(".pills");
+  const kws = (plan.role_keywords || []).filter(Boolean);
+  pills.appendChild(_pillRow(kws.length ? kws : [plan.intent_summary || "people"]));
+  const loc = plan.location || plan.country;
+  if (loc) {
+    pills.appendChild(_el(`<span class="pill-join">in the</span>`));
+    pills.appendChild(_pillRow([loc]));
+  }
+  const edit = _el(`<button class="edit-link">Edit filters</button>`);
+  edit.addEventListener("click", () => { $("refineBar").style.display = "flex"; $("refineInput").focus(); });
+  pills.appendChild(edit);
+
+  const dims = [
+    ["Location", !!(plan.location || plan.country)],
+    ["Job Title", !!(plan.occupations || []).length],
+    ["Years of Experience", false],
+    ["Industry", !!kws.length],
+    ["Skills", !!(plan.hn_terms || []).length],
+  ];
+  const dimBox = card.querySelector(".dims");
+  dims.forEach(([label, on]) => {
+    dimBox.appendChild(_el(`<span class="dim ${on ? "on" : ""}"><span class="ck">${on ? "✓" : "○"}</span>${label}</span>`));
+  });
+  const row = _msgRow("agent", card);
+  return { setTotal: n => card.querySelector(".mtotal").textContent = n.toLocaleString() };
+}
+
+// "Added these criteria to rank your matches" card
+function chatCriteria(plan) {
+  const crit = [...new Set([...(plan.occupations || []), ...(plan.hn_terms || [])])].filter(Boolean);
+  if (!crit.length) return null;
+  const card = _el(`<div>
+    <div class="b-title">Added these <b>✦ Criteria</b> to rank your matches</div>
+    <div class="pills"></div>
+  </div>`);
+  const pills = card.querySelector(".pills");
+  pills.appendChild(_pillRow(crit));
+  const edit = _el(`<button class="edit-link">Edit criteria</button>`);
+  edit.addEventListener("click", () => { $("refineBar").style.display = "flex"; $("refineInput").focus(); });
+  pills.appendChild(edit);
+  _msgRow("agent", card);
 }
 
 function scoreClass(s) { return s >= 70 ? "hi" : s >= 40 ? "mid" : "lo"; }
@@ -1186,7 +1307,6 @@ function personRows(c, i) {
 }
 
 function renderResults(d) {
-  traceLine("scanned", d.total_candidates + " real profiles → AI-reviewed in " + d.elapsed_seconds + "s");
   lastResults = d;
   $("exportBar").style.display = "block";
   $("resultsMeta").textContent =
@@ -1211,8 +1331,8 @@ async function runRefine() {
   if (instruction.length < 2) return;
   const btn = $("refineBtn");
   btn.disabled = true;
-  traceLine("you", instruction);
-  let live = traceLine("agent", "refining the current list…", true);
+  chatUser(instruction);
+  const live = chatProgress("Refining your matches");
   try {
     const resp = await api("/api/refine", {
       method: "POST",
@@ -1222,8 +1342,7 @@ async function runRefine() {
     if (resp.status === 401) { openAuth(null, "signup"); throw new Error("sign in to refine results"); }
     if (!resp.ok) throw new Error("refine failed");
     const out = await resp.json();
-    live.querySelector(".scan")?.remove();
-    traceLine("agent", out.reply);
+    live.finish(out.reply);
     lastResults.results = out.results;
     if (!out.results.length) {
       $("tableWrap").style.display = "none";
@@ -1237,8 +1356,7 @@ async function runRefine() {
       `${out.results.length} matches · refined: "${instruction}"`;
     $("refineInput").value = "";
   } catch (e) {
-    live.querySelector(".scan")?.remove();
-    traceLine("agent", "refinement failed — try again");
+    live.finish("Refinement failed — try again");
   } finally {
     btn.disabled = false;
     $("refineInput").focus();
@@ -1308,37 +1426,40 @@ function runSearch() {
   $("exportBar").style.display = "none";
   $("refineBar").style.display = "none";
   $("resultsMeta").textContent = "";
-  let live = traceLine("agent", "planning search across live sources…", true);
+  chatUser(q);
+  const progress = chatProgress("Planning your search");
+  let filterCard = null;
   $("results").scrollIntoView({ behavior: "smooth", block: "start" });
 
   const src = new EventSource("/api/search/stream?q=" + encodeURIComponent(q));
   src.addEventListener("status", e => {
     const d = JSON.parse(e.data);
-    live.querySelector(".scan")?.remove();
-    live = traceLine("agent", d.text, true);
+    if (d.text && d.text.startsWith("AI reviewing")) progress.setText(`AI reviewing ${d.count ?? ""} profiles`);
+    else progress.setText(d.text || "Working");
   });
   src.addEventListener("plan", e => {
     const p = JSON.parse(e.data);
-    live.querySelector(".scan")?.remove();
-    live = traceLine("agent", p.intent_summary || q, true);
-    if (p.sources?.length) traceLine("sources", p.sources.join(" · "));
-    if (p.occupations?.length) traceLine("occupations", p.occupations.join(", "));
-    if (p.country) traceLine("country", p.country);
-    if (p.github_query) traceLine("github", p.github_query);
+    progress.setText("Scanning 100+ live sources");
+    filterCard = chatFilters(p);
+    chatCriteria(p);
+    // Keep the scanning bubble last so the flow reads: ask → filters → criteria → scanning
+    $("trace").appendChild(progress.row);
   });
   src.addEventListener("source", e => {
     const d = JSON.parse(e.data);
-    traceLine("source", `✓ ${d.source} — ${d.count} profiles`);
+    progress.addSource(d.source, d.count);
   });
   src.addEventListener("done", e => {
     src.close();
-    live.querySelector(".scan")?.remove();
-    renderResults(JSON.parse(e.data));
+    const d = JSON.parse(e.data);
+    progress.finish(`Scanned ${d.total_candidates.toLocaleString()} real profiles in ${d.elapsed_seconds}s — AI ranked the best matches`);
+    filterCard?.setTotal(d.total_candidates);
+    renderResults(d);
     $("searchBtn").disabled = false;
   });
   src.onerror = () => {
     src.close();
-    live.querySelector(".scan")?.remove();
+    progress.finish("Search interrupted — please try again");
     $("err").textContent = "⚠ search stream interrupted — please try again";
     $("err").style.display = "block";
     $("searchBtn").disabled = false;
