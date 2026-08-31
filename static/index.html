@@ -202,6 +202,20 @@ section { padding: 84px 0; }
 #history h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin-bottom: 10px; font-weight: 600; }
 .history-item { margin: 4px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px; background: #fff; font-size: 13px; cursor: pointer; }
 .history-item:hover { border-color: var(--accent); color: var(--accent); }
+#outreachPanel { display: none; padding: 34px 0 6px; }
+#outreachPanel .panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 18px 20px;
+}
+#outreachPanel h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
+.ol-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
+.ol-row:first-of-type { border-top: none; }
+.ol-to { font-weight: 700; color: var(--ink); }
+.ol-subj { color: var(--muted); flex: 1; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ol-date { color: var(--muted); font-size: 12px; }
+.open-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.open-badge.yes { background: #e9f9c7; color: #3f6212; }
+.open-badge.no { background: #f1f1f1; color: var(--muted); font-weight: 500; }
 .table-wrap {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   overflow-x: auto; box-shadow: var(--shadow);
@@ -426,6 +440,13 @@ footer { padding: 56px 0 40px; }
       <div class="stat"><b>AI</b><span>fit score &amp; review on every match</span></div>
       <div class="stat"><b>~10s</b><span>from question to ranked people</span></div>
     </div>
+
+    <section id="outreachPanel">
+      <div class="panel">
+        <h3>Outreach — sent &amp; opened</h3>
+        <div id="outreachRows"></div>
+      </div>
+    </section>
   </div>
 </header>
 
@@ -705,6 +726,38 @@ async function loadHistory() {
     renderHistory(d.history);
   } catch (_) { /* history is best-effort */ }
 }
+
+function esc(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function fmtDate(ts) {
+  return new Date(ts * 1000).toLocaleString(undefined,
+    { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+async function loadOutreachLog() {
+  try {
+    const r = await fetch("/api/outreach/log");
+    const d = await r.json();
+    const msgs = d.messages || [];
+    const panel = $("outreachPanel");
+    if (!msgs.length) { panel.style.display = "none"; return; }
+    $("outreachRows").innerHTML = msgs.map(m => {
+      const badge = m.opened_at
+        ? `<span class="open-badge yes">Opened ✓${m.opens > 1 ? ` · ${m.opens}×` : ""}</span>`
+        : `<span class="open-badge no">Not opened yet</span>`;
+      const openedInfo = m.opened_at ? `first opened ${fmtDate(m.opened_at)}` : "";
+      return `<div class="ol-row">
+        <span class="ol-to">${esc(m.to)}</span>
+        <span class="ol-subj">${esc(m.subject)}</span>
+        <span class="ol-date">sent ${fmtDate(m.sent_at)}${openedInfo ? " · " + openedInfo : ""}</span>
+        ${badge}
+      </div>`;
+    }).join("");
+    panel.style.display = "block";
+  } catch (_) { /* outreach log is best-effort */ }
+}
 function rerunQuery(btn) {
   const q = btn.textContent;
   const input = document.querySelector("input");
@@ -714,6 +767,7 @@ function rerunQuery(btn) {
   document.getElementById("searchBtn")?.click();
 }
 loadHistory();
+loadOutreachLog();
 
 function exportCsv() {
   if (!lastResults?.results?.length) return;
@@ -885,7 +939,8 @@ function personRows(c, i) {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail || "failed");
-      status.textContent = `sent ✓ follow-up reminder in ${d.followup_due_in_days}d`;
+      status.textContent = `sent ✓${d.tracked ? " · open tracking on" : ""} · follow-up reminder in ${d.followup_due_in_days}d`;
+      loadOutreachLog();
     } catch (err) {
       status.textContent = String(err.message).slice(0, 120);
     } finally { sendBtn.disabled = false; }
