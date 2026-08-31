@@ -514,7 +514,7 @@ footer { padding: 56px 0 40px; }
     </div>
 
     <div class="stats">
-      <div class="stat"><b>13</b><span>live public data sources available per search</span></div>
+      <div class="stat"><b>100+</b><span>live public sources &amp; communities scanned per search</span></div>
       <div class="stat"><b>100%</b><span>real profiles — zero seed data</span></div>
       <div class="stat"><b>AI</b><span>fit score &amp; review on every match</span></div>
       <div class="stat"><b>~10s</b><span>from question to ranked people</span></div>
@@ -593,7 +593,7 @@ footer { padding: 56px 0 40px; }
       </div>
       <div class="step">
         <h3>Live multi-source discovery</h3>
-        <p>Outrovo scans Wikidata, Wikipedia, GitHub, Bluesky, Stack Overflow, OpenAlex, Hacker News and more in parallel for real, verifiable profiles.</p>
+        <p>Outrovo scans Wikidata, Wikipedia, GitHub, Bluesky, OpenAlex, Hacker News, Hugging Face, arXiv, PubMed, and the entire Stack Exchange network (180+ expert communities) in parallel for real, verifiable profiles.</p>
       </div>
       <div class="step">
         <h3>AI review &amp; scoring</h3>
@@ -676,7 +676,7 @@ footer { padding: 56px 0 40px; }
     <div class="faq">
       <details>
         <summary>Where does Outrovo get its data?</summary>
-        <p>Every result comes from live public sources queried at search time — Wikidata, Wikipedia, GitHub, Bluesky, Stack Overflow, OpenAlex, Hacker News, DEV.to, Mastodon, and Product Hunt. There is no seed database and no static lists: if a profile appears, it was fetched and reviewed in real time.</p>
+        <p>Every result comes from live public sources queried at search time — Wikidata, Wikipedia, GitHub, Bluesky, OpenAlex, Hacker News, DEV.to, Mastodon, Product Hunt, YouTube, Hugging Face, npm, arXiv, PubMed, DBLP, Crossref, ORCID, MusicBrainz, Mixcloud, Dailymotion, Open Library, Codeberg, Lobsters, and 180+ Stack Exchange expert communities. There is no seed database and no static lists: if a profile appears, it was fetched and reviewed in real time.</p>
       </details>
       <details>
         <summary>How does the fit score work?</summary>
@@ -1003,8 +1003,7 @@ function personRows(c, i) {
   const score = c.fit_score || 0;
   const initials = c.name.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
   const socials = Object.entries(c.platforms || {})
-    .filter(([k]) => SOCIAL_ICONS[k])
-    .map(([k, u]) => `<a class="s-${k}" href="${u}" target="_blank" rel="noopener" title="${k}">${SOCIAL_ICONS[k]}</a>`)
+    .map(([k, u]) => `<a class="s-${k}" href="${u}" target="_blank" rel="noopener" title="${k}">${SOCIAL_ICONS[k] || SOCIAL_ICONS.website}</a>`)
     .join("");
 
   const tr = document.createElement("tr");

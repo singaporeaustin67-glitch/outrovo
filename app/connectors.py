@@ -1676,6 +1676,541 @@ def merge_candidates(candidates: list[dict]) -> list[dict]:
     return merged
 
 
+# ── Additional keyless public sources (verified reachable from datacenter IPs) ──
+
+
+# Keyword fragments → Stack Exchange network sites (api_site_parameter).
+# The network exposes 180+ communities through one API; this map routes a
+# topic to the handful of communities where its proven experts live.
+_SE_SITE_MAP = {
+    "server": ["serverfault"], "sysadmin": ["serverfault"], "ubuntu": ["askubuntu"],
+    "linux": ["unix", "askubuntu"], "unix": ["unix"], "windows": ["superuser"],
+    "mac": ["apple"], "iphone": ["apple"], "ios": ["apple"], "android": ["android"],
+    "seo": ["webmasters"], "webmaster": ["webmasters"],
+    "security": ["security"], "infosec": ["security"], "cryptography": ["crypto"],
+    "database": ["dba"], "sql": ["dba"], "postgres": ["dba"], "mysql": ["dba"],
+    "math": ["mathoverflow", "math"], "statistics": ["stats"],
+    "machine learning": ["ai", "stats", "datascience"], "deep learning": ["ai", "stats"],
+    "data science": ["datascience", "stats"], "nlp": ["ai", "datascience"], "ai": ["ai"],
+    "game": ["gamedev"], "unity": ["gamedev"], "unreal": ["gamedev"],
+    "ux": ["ux"], "ui": ["ux"], "figma": ["graphicdesign"], "blender": ["blender"],
+    "photography": ["photo"], "music": ["music"], "guitar": ["music"],
+    "law": ["law"], "legal": ["law"], "contract": ["law"],
+    "finance": ["money"], "invest": ["money"], "tax": ["money"], "accounting": ["money"],
+    "cooking": ["cooking"], "baking": ["cooking"], "fitness": ["fitness"],
+    "travel": ["travel"], "cycling": ["bicycles"], "bike": ["bicycles"],
+    "physics": ["physics"], "chemistry": ["chemistry"], "biology": ["biology"],
+    "bioinformatics": ["bioinformatics"], "genomics": ["bioinformatics"],
+    "electronics": ["electronics"], "arduino": ["arduino"], "raspberry pi": ["raspberrypi"],
+    "embedded": ["electronics", "arduino"],
+    "wordpress": ["wordpress"], "drupal": ["drupal"], "magento": ["magento"],
+    "salesforce": ["salesforce"], "sharepoint": ["sharepoint"],
+    "academia": ["academia"], "writing": ["writers"], "novel": ["writers"],
+    "chess": ["chess"], "bitcoin": ["bitcoin"], "ethereum": ["ethereum"],
+    "space": ["space"], "aviation": ["aviation"], "cars": ["mechanics"],
+}
+
+
+async def search_se_network(client: httpx.AsyncClient, tags: list[str], limit: int = 8) -> list[dict]:
+    """Top answerers across the Stack Exchange network (180+ communities).
+    Routes each topic term to its relevant communities beyond Stack Overflow."""
+    jobs: list[tuple[str, str]] = []  # (site, tag_slug)
+    for tag in tags[:3]:
+        slug = re.sub(r"[^a-z0-9.#+-]+", "-", tag.lower()).strip("-")
+        if len(slug) < 2:
+            continue
+        sites: list[str] = []
+        for kw, mapped in _SE_SITE_MAP.items():
+            if kw in tag.lower():
+                sites.extend(s for s in mapped if s not in sites)
+        for site in sites[:3]:
+            jobs.append((site, slug))
+    out: dict[str, dict] = {}
+    for site, slug in jobs[:6]:
+        resp = await client.get(
+            f"https://api.stackexchange.com/2.3/tags/{slug}/top-answerers/all_time",
+            params={"site": site, "pagesize": 5},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for item in resp.json().get("items", []):
+            u = item.get("user") or {}
+            uid = u.get("user_id")
+            if not uid or f"{site}:{uid}" in out:
+                continue
+            out[f"{site}:{uid}"] = {
+                "id": f"se-{site}:{uid}",
+                "name": html.unescape(u.get("display_name", "")),
+                "headline": f"Top '{slug}' answerer on {site}.stackexchange.com (score {item.get('score', 0)}, rep {u.get('reputation', 0)})",
+                "location": u.get("location", ""),
+                "source": site,
+                "profile_url": u.get("link", ""),
+                "avatar_url": u.get("profile_image", ""),
+                "platforms": {site: u.get("link", "")},
+                "stats": {"reputation": u.get("reputation", 0), "tag_score": item.get("score", 0),
+                          "website": u.get("website_url", "")},
+            }
+            if u.get("website_url"):
+                out[f"{site}:{uid}"]["platforms"]["website"] = u["website_url"]
+    return sorted(out.values(), key=lambda c: c["stats"]["tag_score"], reverse=True)[:limit]
+
+
+def _slug_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+async def search_dblp(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """DBLP computer-science bibliography: aggregate authors of top papers on a topic."""
+    authors: dict[str, dict] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://dblp.org/search/publ/api",
+            params={"q": topic, "format": "json", "h": 30},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        hits = (resp.json().get("result", {}).get("hits", {}).get("hit") or [])
+        for h in hits:
+            info = h.get("info", {})
+            aus = info.get("authors", {}).get("author", [])
+            if isinstance(aus, dict):
+                aus = [aus]
+            for a in aus:
+                name = a.get("text", "") if isinstance(a, dict) else str(a)
+                if not name:
+                    continue
+                rec = authors.setdefault(name, {"papers": 0, "venue": ""})
+                rec["papers"] += 1
+                if not rec["venue"] and info.get("venue"):
+                    rec["venue"] = info["venue"]
+    out = []
+    for name, rec in sorted(authors.items(), key=lambda kv: kv[1]["papers"], reverse=True)[:limit]:
+        out.append({
+            "id": f"dblp:{_slug_name(name)}",
+            "name": name,
+            "headline": f"Computer-science author — {rec['papers']} recent publications on this topic"
+                        + (f" (e.g. in {rec['venue']})" if rec["venue"] else ""),
+            "source": "dblp",
+            "profile_url": f"https://dblp.org/search?q={quote_plus(name)}",
+            "platforms": {"dblp": f"https://dblp.org/search?q={quote_plus(name)}"},
+            "stats": {"papers": rec["papers"]},
+        })
+    return out
+
+
+async def search_arxiv(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """arXiv preprint authors for a topic (physics, math, CS, ML, quant bio/fin)."""
+    import xml.etree.ElementTree as ET
+    authors: dict[str, int] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://export.arxiv.org/api/query",
+            params={"search_query": f"all:{topic}", "max_results": 30, "sortBy": "relevance"},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        try:
+            root = ET.fromstring(resp.text)
+        except ET.ParseError:
+            continue
+        ns = {"a": "http://www.w3.org/2005/Atom"}
+        for entry in root.findall("a:entry", ns):
+            for au in entry.findall("a:author", ns):
+                n = au.find("a:name", ns)
+                if n is not None and n.text:
+                    authors[n.text.strip()] = authors.get(n.text.strip(), 0) + 1
+    out = []
+    for name, count in sorted(authors.items(), key=lambda kv: kv[1], reverse=True)[:limit]:
+        link = f"https://arxiv.org/search/?searchtype=author&query={quote_plus(name)}"
+        out.append({
+            "id": f"arxiv:{_slug_name(name)}",
+            "name": name,
+            "headline": f"arXiv author — {count} recent papers matching this topic",
+            "source": "arxiv",
+            "profile_url": link,
+            "platforms": {"arxiv": link},
+            "stats": {"papers": count},
+        })
+    return out
+
+
+async def search_pubmed(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """PubMed authors on recent papers about a biomedical/clinical topic."""
+    authors: dict[str, int] = {}
+    for topic in topics[:2]:
+        r1 = await client.get(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            params={"db": "pubmed", "term": topic, "retmode": "json", "retmax": 25, "sort": "relevance"},
+            headers=_headers(),
+        )
+        if r1.status_code != 200:
+            continue
+        ids = r1.json().get("esearchresult", {}).get("idlist", [])
+        if not ids:
+            continue
+        r2 = await client.get(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+            params={"db": "pubmed", "id": ",".join(ids), "retmode": "json"},
+            headers=_headers(),
+        )
+        if r2.status_code != 200:
+            continue
+        for pid in r2.json().get("result", {}).get("uids", []):
+            for a in r2.json()["result"].get(pid, {}).get("authors", []):
+                name = a.get("name", "")
+                if name:
+                    authors[name] = authors.get(name, 0) + 1
+    out = []
+    for name, count in sorted(authors.items(), key=lambda kv: kv[1], reverse=True)[:limit]:
+        link = f"https://pubmed.ncbi.nlm.nih.gov/?term={quote_plus(name)}%5Bau%5D"
+        out.append({
+            "id": f"pubmed:{_slug_name(name)}",
+            "name": name,
+            "headline": f"PubMed author — {count} recent papers on this topic",
+            "source": "pubmed",
+            "profile_url": link,
+            "platforms": {"pubmed": link},
+            "stats": {"papers": count},
+        })
+    return out
+
+
+async def search_orcid(client: httpx.AsyncClient, topics: list[str], limit: int = 6) -> list[dict]:
+    """ORCID public registry: researchers with verified scholarly identities."""
+    ids: list[str] = []
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://pub.orcid.org/v3.0/search/",
+            params={"q": topic, "rows": 6},
+            headers=_headers({"Accept": "application/json"}),
+        )
+        if resp.status_code != 200:
+            continue
+        for r in resp.json().get("result", []):
+            p = (r.get("orcid-identifier") or {}).get("path")
+            if p and p not in ids:
+                ids.append(p)
+
+    async def one(oid: str) -> dict | None:
+        r = await client.get(f"https://pub.orcid.org/v3.0/{oid}/personal-details",
+                             headers=_headers({"Accept": "application/json"}))
+        if r.status_code != 200:
+            return None
+        d = r.json()
+        nm = d.get("name") or {}
+        given = (nm.get("given-names") or {}).get("value", "")
+        family = (nm.get("family-name") or {}).get("value", "")
+        name = f"{given} {family}".strip()
+        if not name:
+            return None
+        return {
+            "id": f"orcid:{oid}",
+            "name": name,
+            "headline": "Registered researcher on ORCID (verified scholarly identity)",
+            "source": "orcid",
+            "profile_url": f"https://orcid.org/{oid}",
+            "platforms": {"orcid": f"https://orcid.org/{oid}"},
+            "stats": {},
+        }
+
+    found = await asyncio.gather(*(one(o) for o in ids[:limit]), return_exceptions=True)
+    return [f for f in found if isinstance(f, dict)]
+
+
+async def search_crossref(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """Crossref works metadata: aggregate authors of top-cited DOIs for a topic."""
+    authors: dict[str, dict] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://api.crossref.org/works",
+            params={"query": topic, "rows": 25, "select": "author,is-referenced-by-count",
+                    "sort": "is-referenced-by-count", "order": "desc"},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for w in resp.json().get("message", {}).get("items", []):
+            cites = w.get("is-referenced-by-count", 0)
+            for a in w.get("author", []):
+                name = f"{a.get('given', '')} {a.get('family', '')}".strip()
+                if not name:
+                    continue
+                rec = authors.setdefault(name, {"papers": 0, "cites": 0, "orcid": ""})
+                rec["papers"] += 1
+                rec["cites"] += cites
+                if a.get("ORCID") and not rec["orcid"]:
+                    rec["orcid"] = a["ORCID"]
+    out = []
+    for name, rec in sorted(authors.items(), key=lambda kv: kv[1]["cites"], reverse=True)[:limit]:
+        platforms = {"crossref": f"https://search.crossref.org/?q={quote_plus(name)}&from_ui=yes"}
+        if rec["orcid"]:
+            platforms["orcid"] = rec["orcid"]
+        out.append({
+            "id": f"crossref:{_slug_name(name)}",
+            "name": name,
+            "headline": f"Published author — {rec['papers']} works, {rec['cites']} citations on this topic",
+            "source": "crossref",
+            "profile_url": rec["orcid"] or platforms["crossref"],
+            "platforms": platforms,
+            "stats": {"papers": rec["papers"], "citations": rec["cites"]},
+        })
+    return out
+
+
+async def search_huggingface(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """Hugging Face model/dataset authors — real AI/ML builders with download counts."""
+    authors: dict[str, dict] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://huggingface.co/api/models",
+            params={"search": topic, "limit": 30},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for m in resp.json():
+            author = m.get("author") or (m.get("id", "").split("/")[0] if "/" in m.get("id", "") else "")
+            if not author:
+                continue
+            rec = authors.setdefault(author, {"models": 0, "downloads": 0, "likes": 0})
+            rec["models"] += 1
+            rec["downloads"] += m.get("downloads", 0) or 0
+            rec["likes"] += m.get("likes", 0) or 0
+    out = []
+    for author, rec in sorted(authors.items(), key=lambda kv: kv[1]["downloads"], reverse=True)[:limit]:
+        out.append({
+            "id": f"huggingface:{author.lower()}",
+            "name": author,
+            "headline": f"Hugging Face publisher — {rec['models']} models, {rec['downloads']:,} downloads, {rec['likes']} likes",
+            "source": "huggingface",
+            "profile_url": f"https://huggingface.co/{author}",
+            "avatar_url": f"https://huggingface.co/api/users/{author}/avatar",
+            "platforms": {"huggingface": f"https://huggingface.co/{author}"},
+            "stats": {"downloads": rec["downloads"], "likes": rec["likes"], "models": rec["models"]},
+        })
+    return out
+
+
+async def search_npm(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """npm registry: maintainers of packages in a topic area — real JavaScript developers."""
+    maintainers: dict[str, dict] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://registry.npmjs.org/-/v1/search",
+            params={"text": f"keywords:{topic}", "size": 25},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for obj in resp.json().get("objects", []):
+            pkg = obj.get("package", {})
+            for m in pkg.get("maintainers", []):
+                uname = m.get("username") or m.get("name", "")
+                if not uname:
+                    continue
+                rec = maintainers.setdefault(uname, {"packages": 0, "email": ""})
+                rec["packages"] += 1
+                if m.get("email") and not rec["email"]:
+                    rec["email"] = m["email"]
+    out = []
+    for uname, rec in sorted(maintainers.items(), key=lambda kv: kv[1]["packages"], reverse=True)[:limit]:
+        platforms = {"npm": f"https://www.npmjs.com/~{uname}"}
+        stats = {"packages": rec["packages"]}
+        if rec["email"]:
+            stats["published_emails"] = [rec["email"]]
+        out.append({
+            "id": f"npm:{uname.lower()}",
+            "name": uname,
+            "headline": f"npm maintainer — {rec['packages']} packages in this topic",
+            "source": "npm",
+            "profile_url": f"https://www.npmjs.com/~{uname}",
+            "platforms": platforms,
+            "stats": stats,
+        })
+    return out
+
+
+async def search_lobsters(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """Lobsters (invite-only dev community): active submitters in a tag."""
+    users: dict[str, dict] = {}
+    for topic in topics[:2]:
+        slug = re.sub(r"[^a-z0-9_+-]+", "", topic.lower().replace(" ", ""))
+        if len(slug) < 2:
+            continue
+        resp = await client.get(f"https://lobste.rs/t/{slug}.json", headers=_headers())
+        if resp.status_code != 200:
+            continue
+        for story in resp.json():
+            su = story.get("submitter_user") or {}
+            u = su.get("username", "") if isinstance(su, dict) else str(su)
+            if not u:
+                continue
+            rec = users.setdefault(u, {"stories": 0, "score": 0})
+            rec["stories"] += 1
+            rec["score"] += story.get("score", 0) or 0
+    out = []
+    for uname, rec in sorted(users.items(), key=lambda kv: kv[1]["score"], reverse=True)[:limit]:
+        out.append({
+            "id": f"lobsters:{uname.lower()}",
+            "name": uname,
+            "headline": f"Active Lobsters contributor — {rec['stories']} stories, {rec['score']} points in '{topics[0] if topics else ''}'",
+            "source": "lobsters",
+            "profile_url": f"https://lobste.rs/u/{uname}",
+            "avatar_url": f"https://avatars.githubusercontent.com/{uname}",  # many share GH handles; onerror hides misses
+            "platforms": {"lobsters": f"https://lobste.rs/u/{uname}"},
+            "stats": {"stories": rec["stories"], "score": rec["score"]},
+        })
+    return out
+
+
+async def search_codeberg(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """Codeberg (Forgejo): open-source developers outside GitHub's orbit."""
+    seen: dict[str, dict] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://codeberg.org/api/v1/users/search",
+            params={"q": topic, "limit": 10},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for u in resp.json().get("data", []):
+            login = u.get("login", "")
+            if not login or login.lower() in seen:
+                continue
+            seen[login.lower()] = {
+                "id": f"codeberg:{login.lower()}",
+                "name": u.get("full_name") or login,
+                "headline": f"Open-source developer on Codeberg ({login})",
+                "source": "codeberg",
+                "profile_url": u.get("html_url", f"https://codeberg.org/{login}"),
+                "avatar_url": u.get("avatar_url", ""),
+                "platforms": {"codeberg": u.get("html_url", f"https://codeberg.org/{login}")},
+                "stats": {},
+            }
+    return list(seen.values())[:limit]
+
+
+async def search_mixcloud(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """Mixcloud user search — DJs, radio hosts, music curators."""
+    seen: dict[str, dict] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://api.mixcloud.com/search/",
+            params={"q": topic, "type": "user"},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for u in resp.json().get("data", []):
+            key = u.get("key", "").strip("/")
+            if not key or key in seen:
+                continue
+            seen[key] = {
+                "id": f"mixcloud:{key.lower()}",
+                "name": u.get("name") or key,
+                "headline": "DJ / music curator on Mixcloud",
+                "source": "mixcloud",
+                "profile_url": u.get("url", ""),
+                "avatar_url": (u.get("pictures") or {}).get("large", ""),
+                "platforms": {"mixcloud": u.get("url", "")},
+                "stats": {},
+            }
+    return list(seen.values())[:limit]
+
+
+async def search_dailymotion(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """Dailymotion creators — video publishers outside YouTube."""
+    seen: dict[str, dict] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://api.dailymotion.com/users",
+            params={"search": topic, "limit": 10, "fields": "username,screenname,avatar_120_url,videos_total"},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for u in resp.json().get("list", []):
+            uname = u.get("username", "")
+            if not uname or uname in seen:
+                continue
+            seen[uname] = {
+                "id": f"dailymotion:{uname.lower()}",
+                "name": u.get("screenname") or uname,
+                "headline": f"Video creator on Dailymotion ({u.get('videos_total', 0)} videos)",
+                "source": "dailymotion",
+                "profile_url": f"https://www.dailymotion.com/{uname}",
+                "avatar_url": u.get("avatar_120_url", ""),
+                "platforms": {"dailymotion": f"https://www.dailymotion.com/{uname}"},
+                "stats": {"videos": u.get("videos_total", 0)},
+            }
+    return list(seen.values())[:limit]
+
+
+async def search_musicbrainz(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """MusicBrainz open music encyclopedia — real musicians/bands by name or tag."""
+    seen: dict[str, dict] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://musicbrainz.org/ws/2/artist",
+            params={"query": topic, "fmt": "json", "limit": 12},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for a in resp.json().get("artists", []):
+            aid = a.get("id", "")
+            if not aid or aid in seen:
+                continue
+            kind = a.get("type", "artist")
+            country = a.get("country", "")
+            tags = ", ".join(t["name"] for t in (a.get("tags") or [])[:3])
+            seen[aid] = {
+                "id": f"musicbrainz:{aid}",
+                "name": a.get("name", ""),
+                "headline": f"{kind.title()}{f' from {country}' if country else ''}"
+                            + (f" — tags: {tags}" if tags else ""),
+                "country_code": country,
+                "source": "musicbrainz",
+                "profile_url": f"https://musicbrainz.org/artist/{aid}",
+                "platforms": {"musicbrainz": f"https://musicbrainz.org/artist/{aid}"},
+                "stats": {},
+            }
+    return list(seen.values())[:limit]
+
+
+async def search_openlibrary(client: httpx.AsyncClient, topics: list[str], limit: int = 8) -> list[dict]:
+    """Open Library (Internet Archive): real authors by subject or name."""
+    seen: dict[str, dict] = {}
+    for topic in topics[:2]:
+        resp = await client.get(
+            "https://openlibrary.org/search/authors.json",
+            params={"q": topic, "limit": 12},
+            headers=_headers(),
+        )
+        if resp.status_code != 200:
+            continue
+        for a in resp.json().get("docs", []):
+            key = a.get("key", "")
+            if not key or key in seen:
+                continue
+            work = a.get("top_work", "")
+            count = a.get("work_count", 0)
+            seen[key] = {
+                "id": f"openlibrary:{key}",
+                "name": a.get("name", ""),
+                "headline": f"Author — {count} works" + (f", best known for \"{work}\"" if work else ""),
+                "source": "openlibrary",
+                "profile_url": f"https://openlibrary.org/authors/{key}",
+                "platforms": {"openlibrary": f"https://openlibrary.org/authors/{key}"},
+                "stats": {"works": count},
+            }
+    return list(seen.values())[:limit]
+
+
 async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
     sources = set(plan.get("sources", []))
     async with httpx.AsyncClient(timeout=config.HTTP_TIMEOUT) as client:
@@ -1699,8 +2234,39 @@ async def gather_candidates(plan: dict, on_event=None) -> list[dict]:
             tasks["bluesky"] = search_bluesky(client, topic_terms or plan.get("occupations", []))
         if "stackoverflow" in sources:
             tasks["stackoverflow"] = search_stackoverflow(client, topic_terms)
+            # Same tags also route across the wider Stack Exchange network
+            # (180+ communities) at no extra planner cost.
+            tasks["se_network"] = search_se_network(client, topic_terms)
+        if "se_network" in sources and "se_network" not in tasks:
+            tasks["se_network"] = search_se_network(client, topic_terms)
         if "openalex" in sources:
             tasks["openalex"] = search_openalex(client, topic_terms)
+        if "dblp" in sources:
+            tasks["dblp"] = search_dblp(client, topic_terms)
+        if "arxiv" in sources:
+            tasks["arxiv"] = search_arxiv(client, topic_terms)
+        if "pubmed" in sources:
+            tasks["pubmed"] = search_pubmed(client, topic_terms)
+        if "orcid" in sources:
+            tasks["orcid"] = search_orcid(client, topic_terms)
+        if "crossref" in sources:
+            tasks["crossref"] = search_crossref(client, topic_terms)
+        if "huggingface" in sources:
+            tasks["huggingface"] = search_huggingface(client, topic_terms)
+        if "npm" in sources:
+            tasks["npm"] = search_npm(client, topic_terms)
+        if "lobsters" in sources:
+            tasks["lobsters"] = search_lobsters(client, topic_terms)
+        if "codeberg" in sources:
+            tasks["codeberg"] = search_codeberg(client, topic_terms)
+        if "mixcloud" in sources:
+            tasks["mixcloud"] = search_mixcloud(client, topic_terms)
+        if "dailymotion" in sources:
+            tasks["dailymotion"] = search_dailymotion(client, topic_terms)
+        if "musicbrainz" in sources:
+            tasks["musicbrainz"] = search_musicbrainz(client, topic_terms)
+        if "openlibrary" in sources:
+            tasks["openlibrary"] = search_openlibrary(client, topic_terms)
         if "youtube" in sources:
             tasks["youtube"] = search_youtube(client, topic_terms, location=plan.get("location", ""))
         if "producthunt" in sources:
