@@ -157,3 +157,13 @@ is NOT on PATH — always use `python3 -m uvicorn`).
   focus the refine input.
 - Browser testing note: work-1 proxy needs --host 0.0.0.0 or it 502s; set
   localStorage outrovo_token via browser_set_storage to test as signed-in.
+
+## Iter 15: landing/app split (Lessie-style)
+- / = static/index.html (marketing only); /app = static/app.html (product).
+  main.py has an /app route. Hero search on landing redirects to /app?q=...
+  and app.js auto-runs it on DOMContentLoaded.
+- static/site.css = all styles (linked by both pages); static/shared.js =
+  auth/account/billing with hooks afterAuth (explicit login), afterSession
+  (restored session), afterLogout; static/app.js = search/lists/outreach.
+- Landing login/signup redirects to /app via afterAuth; signed-in visitors
+  get an App link in landing nav (#appLink, toggled in renderAccount).
